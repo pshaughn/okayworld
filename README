@@ -1,20 +1,31 @@
-deployment is currently fully manual.
+Deployment is currently a manual process.
 
+1
 copy cert.js.initial to cert.js
 copy servertstate.json.initial to serverstate.json
 
+2
 point your webserver (https or not) at the /web subdirectory
 
+3
 if you are using https:
 edit cert.js to point to your cert.pem and key.pem, and make sure the user you'll run as can read those files (chgrp is a much better idea than running as root)
-
+OR
 if you are not using https:
 edit cert.js to set module.exports.secure=false
 edit web/client.html to use ws:// instead of wss://
 
+4
+if the webserver is not the same host as the game server:
+(TODO origin header check stuff, once that check is being made)
+modify findserver.js so OKAY_SOCKET_SERVER_URL points at the game server
+
+5
 edit admin1 and changeme in serverstate.json to your desired admin username and password (the password will be hashed once the server starts)
 
+6
+run server.js somehow (TODO: daemonization instructions; you can just run it manually for quick tests)
 
-
+If the process dies, everything that happened since it started will be forgotten. To retain user accounts and game state, stop it via the web interface's "clean shutdown" button.
 
 
