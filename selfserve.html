@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <script>
+      const SOCKET_SERVER_URL="ws://localhost:8081";
+    </script>
+    <script src="selfserve.js"></script>
+  </head>
+  <body style="margin:0; padding:0;">
+    <div id="createUserDiv">
+      <h1>Account creation</h1>
+      <label>New username: <input id="usernameInputCU"></label><br>
+      <label>New password:
+	<input id="passwordInputCU" type="password">
+      </label><br>
+      <!-- config widget todo -->
+      <button id="buttonCU" onclick="onCUClick()">Create account</button>
+      <div id="resultCU"></div>
+    </div>
+    <hr>
+    <div id="changePasswordDiv">
+      <h1>Password change</h1>
+      <label>Username: <input id="usernameInputCP"></label><br>
+      <label>Old password:
+	<input id="passwordInputCP" type="password">
+      </label><br>
+      <label>New password:
+	<input id="passwordInputCP" type="password">
+      </label><br>
+      <button id="buttonCP" onclick="onCPClick()">Change password</button>
+      <div id="resultCP"></div>
+    </div>
+    <hr>
+    <h1>Avatar change (TODO)</h1>
+    <hr>    
+    <!-- config change todo (first log in, then get a config widget) -->
+    
+    <div id="adminDiv">
+      <h1>Server administrator only</h1>
+      <label>Username: <input id="usernameInputA"></label><br>
+      <label>Password:
+	<input id="passwordInputA" type="password">
+      </label><br>
+      <label>Reason: <input id="reasonInputA"></label><br>
+      <button onclick="onShutdownClick(true)">Clean shutdown</button><br>
+      <button onclick="onShutdownClick(false)">Emergency shutdown</button>
+      <div id="resultAdmin"></div>
+    </div>
+    <hr>    
+    <a href="./client.html">Log in and play</a>
+  </body>
+</html>

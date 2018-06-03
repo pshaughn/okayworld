@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <script>
+      const SOCKET_SERVER_URL="ws://localhost:8081";
+    </script>
+    <script src="client.js"></script>
+    <script src="playsets.js"></script>
+  </head>
+  <body style="margin:0; padding:0;">
+    <div id="loginUI" style="width:100vw; height:100vh; display:block;">
+      <div id="errorDiv" style="display:none;"></div>
+      <label>Username: <input id="usernameInput"></label><br>
+      <label>Password: <input id="passwordInput" type="password"></label><br>
+      <label>Instance: <select id="instanceInput">
+	  <option value="testlobby" selected="true">testlobby</option>
+      </select></label><br>
+      <button onclick="onLoginClick()">Log in</button>
+      <br>
+      <a href="./selfserve.html">Create/manage account</a>
+    </div>
+    <div id="waitUI" style="width:100vw; height:100vh; display:none;">
+      Connecting, please wait...
+    </div>    
+    <div id="gameUI" style="width:100vw; height:100vh; display:none;">
+    </div>						    
+  </body>
+</html>
