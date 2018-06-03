@@ -78,7 +78,7 @@ function onShutdownResult(successString) {
 function sendAPIMessage(message,error,success) {
  var done=false;
  try {
-  var socket=new WebSocket(SOCKET_SERVER_URL);
+  var socket=new WebSocket(OKAY_SOCKET_SERVER_URL);
   socket.addEventListener("open", function() {
    socket.send(message);
    this.addEventListener("error",function() {
@@ -106,7 +106,8 @@ function sendAPIMessage(message,error,success) {
  }
  catch(e) {
   if(!done) {
-   error("an error has occured (server may be down");
+   console.error(e);
+   error("an error has occured (server may be down)");
   }
  }
 }

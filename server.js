@@ -106,6 +106,7 @@ const crypto=require('crypto');
 
 const ws=require('ws');
 
+var httpServer;
 var wsServer;
 
 var config; // general server parameters
@@ -160,13 +161,29 @@ function loadPlaysets() {
 
 
 function initServer() {
+ const cert=require('./cert.js')
  loadPlaysets();
  loadServerState();
+ if(cert.secure) {
+  //console.log("secure")
+  //require("tls").DEFAULT_ECDH_CURVE="auto" // bug workaround
+  const https=require('https')
+  httpServer=new https.createServer({
+   cert:fs.readFileSync(cert.fullchain),
+   key:fs.readFileSync(cert.privkey),
+  });
+ }
+ else {
+  //console.log("insecure")
+  const http=require('http')
+  httpServer=new http.createServer();
+ } 
  wsServer=new ws.Server({
-  port:8081,
+  server:httpServer,
   maxLength:8192
  });
  wsServer.on('connection',onSocketConnection);
+ httpServer.listen(8081);
 }
 
 function serializeServerState() {
@@ -369,7 +386,7 @@ function onLoginMessage(controller,message) {
   "c":controller.id,
   "u":controller.username,
   "f":instanceFrameNow,
-  "d":users[controllers.user].config,
+  "d":users[controller.username].config,
   "k":"c"
  };
  unsuspendInstance(controller.instance);
@@ -647,6 +664,7 @@ function onShutdownMessage(controller,message) {
   fs.writeFileSync(saveFilename,toSave);
  }
  wsServer.close();
+ httpServer.close();
  console.log("Shut down, state backup is to "+saveFilename);
  if(message.r) { 
   console.log("Reason: "+reason);

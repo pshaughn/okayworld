@@ -90,7 +90,7 @@ function onLoginClick() {
   username=document.getElementById("usernameInput").value;
   password=document.getElementById("passwordInput").value;
   instanceName=document.getElementById("instanceInput").value;
-  socket=new WebSocket(SOCKET_SERVER_URL);
+  socket=new WebSocket(OKAY_SOCKET_SERVER_URL);
   hasSocketOpened=false;
   socket.addEventListener("open",onSocketOpen);
   socket.addEventListener("error",onSocketError);

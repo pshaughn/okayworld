@@ -1,0 +1,20 @@
+{
+ "config": {
+  "selfServeUserLimit": 5
+ },
+ "users": {
+  "admin1": {
+   "config": "",
+   "admin": true,
+   "plaintextPassword":"changeme"
+  }
+ },
+ "nextControllerID": 1,
+ "instances": {
+  "testlobby": {
+   "playsetName": "testgame1",
+   "state": {"dots":[]},
+   "controllerStatus": {}
+  }
+ }
+}

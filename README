@@ -1,0 +1,20 @@
+deployment is currently fully manual.
+
+copy cert.js.initial to cert.js
+copy servertstate.json.initial to serverstate.json
+
+point your webserver (https or not) at the /web subdirectory
+
+if you are using https:
+edit cert.js to point to your cert.pem and key.pem, and make sure the user you'll run as can read those files (chgrp is a much better idea than running as root)
+
+if you are not using https:
+edit cert.js to set module.exports.secure=false
+edit web/client.html to use ws:// instead of wss://
+
+edit admin1 and changeme in serverstate.json to your desired admin username and password (the password will be hashed once the server starts)
+
+
+
+
+

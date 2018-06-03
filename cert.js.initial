@@ -1,0 +1,9 @@
+"use strict"
+
+/* set this false if not using https */
+module.exports.secure=true;
+
+/* set these to your cert location if using https */
+module.exports.fullchain="/etc/letsencrypt/live/play.okayideas.com/cert.pem"
+module.exports.privkey="/etc/letsencrypt/live/play.okayideas.com/privkey.pem"
+
