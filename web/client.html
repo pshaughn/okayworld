@@ -3,7 +3,8 @@
   <head>
     <meta charset="utf-8">
     <script>
-      const SOCKET_SERVER_URL="ws://localhost:8081";
+      <!-- change this when rehosting if its assumption is not true -->
+      const SOCKET_SERVER_URL="ws://"+location.host+"8081";
     </script>
     <script src="client.js"></script>
     <script src="playsets.js"></script>

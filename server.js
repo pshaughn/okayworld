@@ -154,7 +154,7 @@ function loadPlaysets() {
  // and don't need reload logic
  global.registerPlayset=registerPlayset
  playsets={}
- require("./playsets.js")
+ require("./web/playsets.js")
  delete global.registerPlayset
 }
 
