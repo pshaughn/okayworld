@@ -15,6 +15,10 @@
    "playsetName": "testgame1",
    "state": {"dots":[]},
    "controllerStatus": {}
+  },
+  "testships": {
+   "playsetName":"spaceduel",
+   "state": {"ships":[]}
   }
  }
 }
