@@ -4,3 +4,4 @@ serverstate.json
 cert.js
 #*#
 node_modules
+.*
