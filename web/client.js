@@ -137,7 +137,6 @@ function onSocketMessage(e) {
   break;
  case "o": // could be ack of own, or could be someone else's
   if(message.c==ownControllerID) {
-   handlePong(frameSentTimestamps[message.f],message.t);
    acceptAck(message);
   }
   else {
@@ -450,7 +449,7 @@ function computeGameStateGivenPrevious(newFrameNumber) {
    connects.push({"c":events[i].c,"u":events[i].u,"d":events[i].d});
    break;
   case "o":
-    commands.push({"c":events[i].c,"o":events[i].o});
+   commands.push({"c":events[i].c,"o":events[i].o});
    break;
   case "f":
    newControllerStatus[events[i].c].i=events[i].i;
@@ -481,6 +480,7 @@ function computeGameStateGivenPrevious(newFrameNumber) {
 function getEstimatedGameState(n) {
  if(n<pastHorizonFrameNumber) { return null; }
  if(gameStates[n]) { return gameStates[n]; }
+ console.log(n)
  var toEstimate=n;
  while(!gameStates[toEstimate-1]) { --toEstimate; }
  while(toEstimate<=n) {

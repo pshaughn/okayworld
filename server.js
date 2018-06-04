@@ -165,18 +165,15 @@ function initServer() {
  loadPlaysets();
  loadServerState();
  if(cert.secure) {
-  //console.log("secure")
-  //require("tls").DEFAULT_ECDH_CURVE="auto" // bug workaround
   const https=require('https')
-  httpServer=new https.createServer({
+  httpServer=https.createServer({
    cert:fs.readFileSync(cert.fullchain),
    key:fs.readFileSync(cert.privkey),
   });
  }
  else {
-  //console.log("insecure")
   const http=require('http')
-  httpServer=new http.createServer();
+  httpServer=http.createServer();
  } 
  wsServer=new ws.Server({
   server:httpServer,

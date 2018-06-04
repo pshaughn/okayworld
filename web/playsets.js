@@ -78,6 +78,9 @@
    Playsets may have utility functions; playset methods will always be called 
    with "this" as the playset. Playsets may also have fields, but use them
    only as constants or as very carefully-managed caches!
+   
+   To help with determinism, "M" is defined in this module to hold various
+   static math functions that work on integers.
 
    The main difference between commands and input strings is that,
    if a user misses frames due to lag or their local cpu load, their last 
@@ -88,6 +91,178 @@
    not explicitly part of the input string. Mouse clicks should pack the
    coordinates or a stable identifier for the targeted object into the command.
 */
+
+const M={
+ SINE_TABLE:[
+  0,4,9,13,18,22,27,31,36,40,44,49,53,58,62,
+  66,71,75,79,83,88,92,96,100,104,108,112,116,120,124,128,
+  132,136,139,143,147,150,154,158,161,165,168,171,175,178,181,
+  184,187,190,193,196,199,202,204,207,210,212,215,217,219,222,
+  224,226,228,230,232,234,236,237,239,241,242,243,245,246,247,
+  248,249,250,251,252,253,254,254,255,255,255,256,256,256,256,
+  256],
+ trunc:function(n) {
+  if(n>0) { return Math.floor(n); }
+  else { return Math.ceil(n); }
+ },
+ floorsqrt:function(n) {
+  return Math.floor(Math.sqrt(Math.floor(n)));
+ },
+ mod:function(a,b) {
+  var result=a%Math.abs(b);
+  if(result<0) { return result+b; }
+  return result;
+ },
+ sin256:function(degrees) {
+  degrees=M.mod(M.trunc(degrees),360);
+  if(degrees<=90) { return M.SINE_TABLE[degrees]; }
+  else if(degrees<=180) { return M.SINE_TABLE[180-degrees]; }
+  else if(degrees<=270) { return -M.SINE_TABLE[degrees-180]; }
+  else { return -M.SINE_TABLE[360-degrees]; }
+ },
+ cos256:function(degrees) {
+  return M.sin256(degrees+90);
+ },
+}
+
+registerPlayset({
+ RNG_MODULUS:Math.pow(2,31)-1,
+ getName:function() { return "spaceduel" },
+ rand:function(state,n) {
+  state.prng=((state.prng||1)*16807)%this.RNG_MODULUS
+  return state.prng%n;
+ },
+ advanceGameState:function(state,connects,commands,inputs,disconnects) {
+  this.rand(state);
+  for(var i in connects) {
+   var x=this.rand(state,320*256)+160*256;
+   var y=this.rand(state,320*256)+80*256;
+   var theta=this.rand(state,360);
+   state.ships.push({
+    controller:connects[i].c,
+    username:connects[i].u,
+    profile:connects[i].d,
+    theta:theta,
+    x:x,
+    y:y,
+    xv:0,
+    yv:0,
+    invincFrames:60,
+    shotTimeout:60,
+   });
+  }
+  var updates={}
+  for(var i in inputs) {
+   updates[inputs[i].c]=[inputs[i].i];
+  }
+  for(var i in commands) {
+   if(commands[i].o=="f" && commands[i].c in updates) {
+    updates[commands[i].c][1]=true;
+   }
+  }
+  state.ships=state.ships.filter(function(s) {
+   return disconnects.indexOf(s.controller)==-1;
+  });
+  var ships=state.ships
+  for(var i in ships) {
+   var c=ships[i].controller;
+   if(updates[c]) {
+    if(updates[c][0].indexOf("l")!=-1) { ships[i].theta-=3; }
+    if(updates[c][0].indexOf("r")!=-1) { ships[i].theta+=3; }
+    ships[i].theta=M.mod(ships[i].theta,360);
+    if(updates[c][0].indexOf("u")!=-1) {
+     ships[i].xv+=M.trunc(M.cos256(ships[i].theta)/2);
+     ships[i].yv+=M.trunc(M.sin256(ships[i].theta)/2);
+    }
+   }
+   ships[i].xv=M.trunc(ships[i].xv*127/128);
+   ships[i].yv=M.trunc(ships[i].yv*127/128);
+   var v2=ships[i].xv*ships[i].xv+ships[i].yv*ships[i].yv;
+   if(v2>1024*1024) {
+    var v=M.floorsqrt(v2);
+    ships[i].xv=M.trunc(ships[i].xv*1024/v);
+    ships[i].yv=M.trunc(ships[i].yv*1024/v);
+   }
+   ships[i].x+=ships[i].xv;
+   ships[i].y+=ships[i].yv;
+   if(ships[i].invincFrames) { --ships[i].invincFrames; }
+   if(ships[i].shotTimeout) { --ships[i].shotTimeout; }   
+   if(ships[i].x<0 || ships[i].y<0 ||
+      ships[i].x>640*256 || ships[i].y>480*256) {
+    var x=this.rand(state,320*256)+160*256;
+    var y=this.rand(state,320*256)+80*256;
+    var theta=this.rand(state,360);
+    ships[i].x=x;
+    ships[i].y=y;
+    ships[i].theta=theta;
+    ships[i].invincFrames=60;
+    ships[i].shotTimeout=60;
+    ships[i].xv=0;
+    ships[i].yv=0;    
+   }   
+  }
+ },
+ initUI:function(state) {
+  var canvas=document.createElement("canvas");
+  canvas.width=640;
+  canvas.height=480;
+  canvas.style.position="absolute";
+  canvas.style.left="calc(50vw - 320px)"
+  canvas.style.top="calc(50vh - 240px)"
+  clientState.canvas=canvas;
+  clientState.context2d=canvas.getContext("2d");
+  screenDiv.appendChild(canvas);
+ },
+ refreshUI:function(state) {
+  var ships=state.ships;
+  var context=clientState.context2d;
+  context.fillStyle="black"
+  context.fillRect(0,0,640,480);
+  context.lineWidth=2;
+  context.lineCap="round";
+  context.lineJoin="round";
+  for(var i in ships) {
+   if(ships[i].invincFrames%2==0) {
+    var colors=get3ProfileColors(ships[i].username,ships[i].profile);
+    context.strokeStyle=colors[0];
+    context.beginPath();
+    context.moveTo(ships[i].x/256+8*Math.cos(ships[i].theta*Math.PI/180),
+		   ships[i].y/256+8*Math.sin(ships[i].theta*Math.PI/180));
+    context.lineTo(ships[i].x/256+5*Math.cos((ships[i].theta+120)*Math.PI/180),
+		   ships[i].y/256+5*Math.sin((ships[i].theta+120)*Math.PI/180));
+    context.stroke();
+    
+    context.strokeStyle=colors[1];
+    context.beginPath();
+    context.moveTo(ships[i].x/256+5*Math.cos((ships[i].theta-120)*Math.PI/180),
+		   ships[i].y/256+5*Math.sin((ships[i].theta-120)*Math.PI/180));
+    context.lineTo(ships[i].x/256+5*Math.cos((ships[i].theta+120)*Math.PI/180),
+		   ships[i].y/256+5*Math.sin((ships[i].theta+120)*Math.PI/180));
+    context.stroke();
+    
+    context.strokeStyle=colors[2];
+    context.beginPath();
+    context.moveTo(ships[i].x/256+8*Math.cos(ships[i].theta*Math.PI/180),
+		   ships[i].y/256+8*Math.sin(ships[i].theta*Math.PI/180));
+    context.lineTo(ships[i].x/256+5*Math.cos((ships[i].theta-120)*Math.PI/180),
+		   ships[i].y/256+5*Math.sin((ships[i].theta-120)*Math.PI/180));
+    context.stroke();
+   }
+  }
+ },
+ destroyUI:function() {
+  screenDiv.innerHTML="";
+ },
+ getCurrentInputString:function() {
+  if(isKeyFresh("KeyZ")) {
+   sendGameCommand("f");
+  }
+  return (isKeyHeld("ArrowLeft")?"l":"")+
+   (isKeyHeld("ArrowRight")?"r":"")+
+   (isKeyHeld("ArrowUp")?"u":"")+
+   (isKeyHeld("ArrowDown")?"d":"");  
+ }
+});
 
 registerPlayset(
  {
@@ -104,8 +279,8 @@ registerPlayset(
      color:this.COLORS[(state.nextColor||0)%this.COLORS.length],
      controller:connects[i].c,
     })
+    state.nextColor=(state.nextColor||0)+1;
    }
-   state.nextColor=(state.nextColor||0)+1;
    var dotMoves={}
    for(var i in inputs) {
     dotMoves[inputs[i].c]=inputs[i].i;
@@ -154,12 +329,12 @@ registerPlayset(
    screenDiv.innerHTML="";
   },
   getCurrentInputString:function() {
-  
-   return (isKeyHeld("KeyA")?"a":"")+
-    (isKeyHeld("KeyW")?"w":"")+
-    (isKeyHeld("KeyS")?"s":"")+
-    (isKeyHeld("KeyD")?"d":"");
-    
+   var ret=
+       (isKeyHeld("KeyA")?"a":"")+
+       (isKeyHeld("KeyW")?"w":"")+
+       (isKeyHeld("KeyS")?"s":"")+
+       (isKeyHeld("KeyD")?"d":"");
+   return ret;
   }
  }
 );
