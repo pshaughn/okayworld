@@ -5,26 +5,26 @@ copy cert.js.initial to cert.js
 copy servertstate.json.initial to serverstate.json
 
 2
-point your webserver (https or not) at the /web subdirectory
+point your https [see note A] webserver at the /web subdirectory
 
 3
-if you are using https:
-edit cert.js to point to your cert.pem and key.pem, and make sure the user you'll run as can read those files (chgrp is a much better idea than running as root)
-OR
-if you are not using https:
-edit cert.js to set module.exports.secure=false
-edit web/client.html to use ws:// instead of wss://
+edit cert.js to point to your cert.pem and privkey.pem, and make sure the user you'll run as can read those files (chgrp is a much better idea than running as root)
+figure out what Origin header your client will be sending and set it in cert.js (this will usually just be https://hostname, or if the port is not 443 https://hostname:port)
 
 4
 if the webserver is not the same host as the game server:
-(TODO origin header check stuff, once that check is being made)
-modify findserver.js so OKAY_SOCKET_SERVER_URL points at the game server
+modify web/findserver.js so OKAY_SOCKET_SERVER_URL points at the game server (the other constants in that file are only defined to set up the url, so you can replace the entire file with just setting a hardcoded url)
 
 5
 edit admin1 and changeme in serverstate.json to your desired admin username and password (the password will be hashed once the server starts)
 
 6
+npm install ws 
+
+7
 run server.js somehow (TODO: daemonization instructions; you can just run it manually for quick tests)
+
+Note A: do not run this over insecure HTTP on the Internet. For local testing, you may instead set module.exports.secure to false in cert.js, in which case insecure sockets will be used with no origin-header check and you do not need to configure the rest of cert.js. If you do this, the client may be served over insecure HTTP or opened from your local filesystem (but may not be served over HTTPS).
 
 If the process dies, everything that happened since it started will be forgotten. To retain user accounts and game state, stop it via the web interface's "clean shutdown" button.
 

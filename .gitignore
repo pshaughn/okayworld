@@ -5,3 +5,4 @@ cert.js
 #*#
 node_modules
 .*
+nohup.out
