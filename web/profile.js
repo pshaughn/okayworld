@@ -41,6 +41,8 @@ const PROFILE_COLOR_CODES={
 }
 
 function get3ProfileColors(username,profile) {
+ // these defaults are bad: the %32 is making it so most of the string
+ // doesn't even matter, and it's not avoiding multiples of the same color.
  function pickColor(div) {
   var n=0;
   for(var i in username) {

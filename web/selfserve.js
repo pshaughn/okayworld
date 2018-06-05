@@ -79,14 +79,14 @@ function sendAPIMessage(message,error,success) {
  var done=false;
  try {
   var socket=new WebSocket(OKAY_SOCKET_SERVER_URL);
+  socket.addEventListener("error",function() {
+   if(!done) {
+    done=true;
+    error("Connection error (server may be down)");
+    }
+  })  
   socket.addEventListener("open", function() {
    socket.send(message);
-   this.addEventListener("error",function() {
-    if(!done) {
-     done=true;
-     error("Connection error (server may be down)");
-    }
-   })
    this.addEventListener("close",function() {
     if(!done) {
      done=true;

@@ -200,7 +200,6 @@ function onSocketClose() {
 }
 
 function onInitialStateMessage(message) {
- console.log(message);
  
  // get the pong measurement out of the way first, initialization may be slow
  handlePong(loginSentTimestamp,message.t);
@@ -480,7 +479,6 @@ function computeGameStateGivenPrevious(newFrameNumber) {
 function getEstimatedGameState(n) {
  if(n<pastHorizonFrameNumber) { return null; }
  if(gameStates[n]) { return gameStates[n]; }
- console.log(n)
  var toEstimate=n;
  while(!gameStates[toEstimate-1]) { --toEstimate; }
  while(toEstimate<=n) {
@@ -585,3 +583,80 @@ function showDisconnectReason(reason) {
  document.getElementById("errorDiv").innerText="Disconnected: "+reason;
  document.getElementById("errorDiv").style.display="block";
 }
+
+function showPreloginWait() {
+ document.getElementById("preloginUI").innerText="Checking connection to server...";
+}
+
+function showPreloginFail(message) {
+ if(!message) {
+  var text="The game server appears to be down (or possibly your network connection to it is down). Try again later."
+ }
+ else {
+  var text="Server returned an error: "+message
+ }
+ document.getElementById("preloginUI").innerText=text
+}
+
+function showPreloginSuccess(message) {
+ var select=document.getElementById("instanceInput");
+ select.innerHTML="";
+ for(var i in message.l) {
+  var name=message.l[i]
+  var option=document.createElement("option");
+  option.value=name
+  option.innerText=name
+  if(name==message.n) { option.selected=true; }
+  select.appendChild(option);
+ }
+ document.getElementById("preloginUI").style.display="none"
+ document.getElementById("loginUI").style.display="block"
+}
+
+
+
+function onInitialLoad() {
+ window.removeEventListener("load",onInitialLoad);
+ showPreloginWait();
+ var done=false;
+ try {
+  var socket=new WebSocket(OKAY_SOCKET_SERVER_URL);
+  socket.addEventListener("error",function() {
+   if(!done) {
+    done=true;
+    showPreloginFail();
+   }
+  })
+  socket.addEventListener("open", function() {
+   socket.send(JSON.stringify({
+    "k":"prelogin"
+   }));
+   this.addEventListener("close",function() {
+    if(!done) {
+     done=true;
+     showPreloginFail();
+    }
+   })
+   this.addEventListener("message",function(e) {
+    // we can assume this is a prelogin success
+    var message=JSON.parse(e.data);
+    if(message.k=="E") {
+     showPreloginFail(message.e);
+    }
+    else {
+     showPreloginSuccess(message);
+    }
+    done=true;
+   });
+  });
+ }
+ catch(e) {
+  if(!done) {
+   console.error(e);
+   showPreloginFail();
+  }
+ } 
+}
+
+window.addEventListener("load",onInitialLoad);
+

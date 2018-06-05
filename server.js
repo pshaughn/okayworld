@@ -57,6 +57,7 @@
    Server-to-client network messages:
    {k:"E", e:errorString} (error, hanging up)
    {k:"D", d:completionString} (successful api call, hanging up)
+   {k:"U", l:[instanceName... ordered], n:defaultInstanceName} (prelogin)
    any instance-controller event, which may additionally have "t" attached as a timing pong
    {k:"S", g:serializedGameState,  p:playsetName,
    x:{controllerID:{'u':username,'i':inputString}... },
@@ -70,6 +71,7 @@
    {k:"l", u:username, p:password, n:instanceName}   
 
    client-to-server network messages for self-serve API calls:
+   {k:"prelogin"} no credentials needed, return info for login page
    {k:"selfServeCreateUser",u:username, p:password, d:config}
    {k:"changeMyPassword",u:username, p:password, n:newPassword, d:config}
    {k:"getMyConfig",u:username, p:password} (completion string is the config)
@@ -319,6 +321,7 @@ function onSocketMessage(e) {
  case "o": onCommandMessage(controller,message); break;
  case "l": onLoginMessage(controller,message); break;
   // API calls
+ case "prelogin": onPreloginMessage(controller,message); break;
  case "selfServeCreateUser": onCreateUserMessage(controller,message); break;
  case "changeMyPassword": onChangePasswordMessage(controller,message); break;
  case "getMyConfig": onGetConfigMessage(controller,message); break;
@@ -359,6 +362,36 @@ function doesPasswordMatchHash(password,hashWanted) {
  hash.update(password+"");
  var digest=hash.digest('hex');
  return hashWanted==salt+"#"+digest
+}
+
+function onPreloginMessage(controller,message) {
+ var instanceList;
+ if(config.instanceDisplayList) {
+  instanceList=config.instanceDisplayList;
+ }
+ else {
+  instanceList=Object.getOwnPropertyNames(instances);
+  instanceList.sort();
+ }
+ var defaultInstance;
+ if(config.defaultInstance) {
+  defaultInstance=config.defaultInstance;
+ }
+ else {
+  defaultInstance=instanceList[0];
+ }
+ try {
+  controller.socket.send(JSON.stringify({k:"U",n:defaultInstance,
+					 l:instanceList}));
+ }
+ catch(e) {
+ };
+ try {
+  controller.socket.close();
+ }
+ catch(e) {
+ };
+ disconnectController(controller);
 }
 
 function onLoginMessage(controller,message) {

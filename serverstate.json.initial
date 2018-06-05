@@ -1,6 +1,8 @@
 {
  "config": {
-  "selfServeUserLimit": 5
+  "selfServeUserLimit": 5,
+  "instanceList": ["testships","testgame1"],
+  "defaultInstance": "testships"
  },
  "users": {
   "admin1": {
