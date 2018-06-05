@@ -119,6 +119,8 @@ var controllers; // map from controller ID numbers to controller objects
 var nextControllerID; // int
 var selfServeUserCounts; // how many self-serve users there are from an IP
 
+var requiredOrigin; // if using https, need this origin or local loopback
+
 const FPS=30;
 const PAST_HORIZON_FRAMES=FPS/2, FUTURE_HORIZON_FRAMES=FPS*3/2;
 const TIMEOUT_MILLIS=5000;
@@ -189,10 +191,12 @@ function initServer() {
    cert:fs.readFileSync(cert.fullchain),
    key:fs.readFileSync(cert.privkey),
   });
+  requiredOrigin=cert.origin;
  }
  else {
   const http=require('http')
   httpServer=http.createServer();
+  requiredOrigin=null;
  } 
  wsServer=new ws.Server({
   server:httpServer,
@@ -279,10 +283,26 @@ function loadServerState() {
 
 
 function onSocketConnection(socket,request) {
+ var isLocal=(request.connection.remoteAddress=="::1" ||
+	      request.connection.remoteAddress=="127.0.0.1" ||
+	      request.connection.remoteAddress=="::ffff:127.0.0.1"); 
+ if(!isLocal && requiredOrigin && request.headers.origin!=requiredOrigin) {
+  try {
+   socket.send(JSON.stringify({"k":"E","e":"origin header mismatch"}));
+  }
+  catch(e) { }
+  try {
+   socket.close();
+  }
+  catch(e) { }
+  return;
+ }
+
  var controller={
   id:nextControllerID,
   socket:socket,
   remoteAddress:request.connection.remoteAddress,
+  isLocal:isLocal
  }
  socket.on('message',onSocketMessage);
  socket.on('error',onSocketError);
