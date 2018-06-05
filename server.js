@@ -131,6 +131,9 @@ const MAX_PASSWORD_LENGTH=64;
 const MAX_USER_CONFIG_LENGTH=10000;
 const MAX_INBOUND_MESSAGE_LENGTH=20000;
 
+// set this true if hashes are desyncing and you want lots of
+// console output about it
+const DUMP_HASH_STATES=false;
 
 const STATE_FILENAME="./serverstate.json";
 
@@ -920,6 +923,17 @@ function advanceHorizonState(instance) {
  }
  if(hashFrame) {
   var hash=instance.playset.hashGameState(instance.pastHorizonState);
+  if(DUMP_HASH_STATES) {
+   console.log("hash is "+hash+" for state:");
+   console.log(instance.playset.serializeGameState(instance.pastHorizonState));
+   if(instance.playset.hashGameState==defaultGameStateHash) {
+    var hash2=defaultGameStateHash(JSON.parse(
+     JSON.stringify(instance.pastHorizonState)));
+    if(hash2!=hash) {
+     console.log("but after stringify/parse, it's "+hash2);
+    }
+   }  
+  }
   var msg=JSON.stringify({"k":"F",
 			  "h":hash});
  }
@@ -981,7 +995,9 @@ function defaultGameStateHash(o) {
   return 103;
  }
  else if(Object.is(o,-0)) {
-  return 104;
+  // JSON serialization can and does clobber zero signs,
+  // so hash needs to do likewise!
+  o=0;
  }
  else if(Array.isArray(o)) {
   return combine(105,recurseContainer(o));

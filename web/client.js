@@ -389,6 +389,7 @@ function pruneUnackedEvents() {
 	e.i!=myOldControllerInput) {
       mustInvalidate=true;
      }
+     //console.log("removing unacked event",e);
      return false;
     }
     return true;
@@ -622,7 +623,9 @@ function defaultGameStateHash(o) {
   return 103;
  }
  else if(Object.is(o,-0)) {
-  return 104;
+  // JSON serialization can and does clobber zero signs,
+  // so hash needs to do likewise!
+  o=0;
  }
  else if(Array.isArray(o)) {
   return combine(105,recurseContainer(o));
