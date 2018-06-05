@@ -553,6 +553,7 @@ function validateFrameOrCommandMessage(controller,message) {
  if(message.f<controller.instance.pastHorizonFrameNumber) {
   // invalid, but in a "don't ack this, it's too lagged" way rather than a
   // constraint violation
+  //console.log("message.f<controller.instance.pastHorizonFrameNumber");
   return false;
  }
  return true;
@@ -664,7 +665,7 @@ function onGetConfigMessage(controller,message) {
 
 function onSetConfigMessage(controller,message) {
  // later: alternate flow for the admin version of the message
- var configWanted=(message.c||"")+"";
+ var configWanted=(message.d||"")+"";
  if(!validateUserConfigLength(configWanted,controller)) { return; }
  if(!(message.u in users &&
       doesPasswordMatchHash(message.p,users[message.u].password))) {
@@ -672,6 +673,7 @@ function onSetConfigMessage(controller,message) {
   return;
  }
  users[message.u].config=configWanted;
+ controllerDone(controller,users[message.u].config);
 }
 
 function onShutdownMessage(controller,message) {

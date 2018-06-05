@@ -226,32 +226,29 @@ registerPlayset({
   context.lineWidth=2;
   context.lineCap="round";
   context.lineJoin="round";
+  function drawTriangle(size) {
+   context.beginPath();
+   context.moveTo(ships[i].x/256+size*8/5*Math.cos(ships[i].theta*Math.PI/180),
+		  ships[i].y/256+size*8/5*Math.sin(ships[i].theta*Math.PI/180));
+   context.lineTo(ships[i].x/256+size*Math.cos((ships[i].theta+120)*Math.PI/180),
+		  ships[i].y/256+size*Math.sin((ships[i].theta+120)*Math.PI/180));
+   context.lineTo(ships[i].x/256+size*Math.cos((ships[i].theta-120)*Math.PI/180),
+		  ships[i].y/256+size*Math.sin((ships[i].theta-120)*Math.PI/180));
+   context.closePath();   
+  }
   for(var i in ships) {
    if(ships[i].invincFrames%2==0) {
     var colors=get3ProfileColors(ships[i].username,ships[i].profile);
-    context.strokeStyle=colors[0];
-    context.beginPath();
-    context.moveTo(ships[i].x/256+8*Math.cos(ships[i].theta*Math.PI/180),
-		   ships[i].y/256+8*Math.sin(ships[i].theta*Math.PI/180));
-    context.lineTo(ships[i].x/256+5*Math.cos((ships[i].theta+120)*Math.PI/180),
-		   ships[i].y/256+5*Math.sin((ships[i].theta+120)*Math.PI/180));
-    context.stroke();
-    
-    context.strokeStyle=colors[1];
-    context.beginPath();
-    context.moveTo(ships[i].x/256+5*Math.cos((ships[i].theta-120)*Math.PI/180),
-		   ships[i].y/256+5*Math.sin((ships[i].theta-120)*Math.PI/180));
-    context.lineTo(ships[i].x/256+5*Math.cos((ships[i].theta+120)*Math.PI/180),
-		   ships[i].y/256+5*Math.sin((ships[i].theta+120)*Math.PI/180));
-    context.stroke();
-    
-    context.strokeStyle=colors[2];
-    context.beginPath();
-    context.moveTo(ships[i].x/256+8*Math.cos(ships[i].theta*Math.PI/180),
-		   ships[i].y/256+8*Math.sin(ships[i].theta*Math.PI/180));
-    context.lineTo(ships[i].x/256+5*Math.cos((ships[i].theta-120)*Math.PI/180),
-		   ships[i].y/256+5*Math.sin((ships[i].theta-120)*Math.PI/180));
-    context.stroke();
+
+    context.fillStyle=colors[0];
+    drawTriangle(10);
+    context.fill();
+    context.fillStyle=colors[1];
+    drawTriangle(7.5);
+    context.fill();
+    context.fillStyle=colors[2];
+    drawTriangle(5);
+    context.fill();
    }
   }
  },

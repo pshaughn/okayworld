@@ -4,6 +4,7 @@
     <meta charset="utf-8">
     <script src="findserver.js"></script>
     <script src="selfserve.js"></script>
+    <script src="profile.js"></script>
   </head>
   <body style="margin:0; padding:0;">
     <div id="createUserDiv">
@@ -15,6 +16,23 @@
       <!-- config widget todo -->
       <button id="buttonCU" onclick="onCUClick()">Create account</button>
       <div id="resultCU"></div>
+    </div>
+    <hr>
+    <div id="profileDiv">
+      <h1>Avatar color change</h1>
+      <label>Username: <input id="usernameInputP"></label><br>
+      <label>Password:
+	<input id="passwordInputP" type="password">
+      </label>
+      <br>
+      <button id="buttonP" onclick="onPClick()">Edit avatar colors</button>
+      <br><br>
+      <div id="profileWidgetDiv">
+      </div>
+      <button id="buttonPSubmit" onclick="onPSubmitClick()" style="display:none;">
+	Submit
+      </button>
+      <div id="resultP"></div>
     </div>
     <hr>
     <div id="changePasswordDiv">
@@ -29,11 +47,7 @@
       <button id="buttonCP" onclick="onCPClick()">Change password</button>
       <div id="resultCP"></div>
     </div>
-    <hr>
-    <h1>Avatar change (TODO)</h1>
     <hr>    
-    <!-- config change todo (first log in, then get a config widget) -->
-    
     <div id="adminDiv">
       <h1>Server administrator only</h1>
       <label>Username: <input id="usernameInputA"></label><br>

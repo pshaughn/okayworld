@@ -12,7 +12,9 @@ function onCUClick() {
    "p":password,
    "d":config,
   })
-  sendAPIMessage(message,onCUError,onCUResult);
+  sendAPIMessage(message,onCUError,function(successString) {
+   onCUResult(successString,username,password);
+  });
   buttonCU.disabled=true;
  }
 }
@@ -22,9 +24,12 @@ function onCUError(errorString) {
  document.getElementById("buttonCU").disabled=false;
 }
 
-function onCUResult(successString) {
+function onCUResult(successString,username,password) {
+ document.getElementById("usernameInputP").value=username;
+ document.getElementById("passwordInputP").value=password;
  document.getElementById("resultCU").innerText=successString;
  document.getElementById("buttonCU").disabled=false;
+ onPClick();
 }
 
 function onCPClick() {
@@ -52,6 +57,67 @@ function onCPError(errorString) {
 function onCPResult(successString) {
  document.getElementById("resultCP").innerText=successString;
  document.getElementById("buttonCP").disabled=false;
+}
+
+function onPClick() {
+ var buttonP=document.getElementById("buttonP");
+ if(!buttonP.disabled) {
+  var username=document.getElementById("usernameInputP").value;
+  var password=document.getElementById("passwordInputP").value;
+  var message=JSON.stringify({
+   "k":"getMyConfig",
+   "u":username,
+   "p":password,
+  })
+  sendAPIMessage(message,onPError,function(successString) {
+   console.log(successString);
+   onPResult(successString,username,password);
+  });
+  buttonP.disabled=true;
+ }
+}
+
+function onPError(errorString) {
+ document.getElementById("resultP").innerText=errorString;
+ document.getElementById("buttonP").disabled=false;
+ document.getElementById("profileWidgetDiv").innerHTML="";
+  document.getElementById("buttonPSubmit").style.display="none"
+}
+
+function onPResult(successString,username,password) {
+ document.getElementById("resultP").innerHTML="";
+ var submit=document.getElementById("buttonPSubmit");
+ var outerDiv=document.getElementById("profileWidgetDiv");
+ outerDiv.innerHTML="";
+ outerDiv.appendChild(makeProfileWidget(username,successString,
+					function(profile) {
+					 submit["data-profile"]=profile;
+					 submit.disabled=false;
+					}
+				       ))
+ document.getElementById("buttonP").disabled=false;
+ submit.style.display="inline";
+ submit["data-password"]=password;
+ submit["data-username"]=username;
+ submit["data-profile"]=successString;
+ submit.disabled=true;
+}
+
+function onPSubmitClick() {
+ var buttonPSubmit=document.getElementById("buttonPSubmit");
+ if(!buttonPSubmit.disabled && buttonP.style.display!="none") {
+  var message=JSON.stringify({
+   "k":"setMyConfig",
+   "u":buttonPSubmit["data-username"],
+   "p":buttonPSubmit["data-password"],
+   "d":buttonPSubmit["data-profile"],
+  })
+  sendAPIMessage(message,onPError,function() {
+   document.getElementById("buttonPSubmit").innerText="Submit";
+  });
+  document.getElementById("buttonPSubmit").disabled=true;
+  document.getElementById("buttonPSubmit").innerText="Wait...";
+ }
 }
 
 function onShutdownClick(clean) {
