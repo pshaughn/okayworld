@@ -137,24 +137,33 @@ registerPlayset({
   state.prng=((state.prng||1)*16807)%this.RNG_MODULUS
   return state.prng%n;
  },
+
  advanceGameState:function(state,connects,commands,inputs,disconnects) {
+  var thisPlayset=this;
+  function respawnShip(ship) {
+   var x=thisPlayset.rand(state,320*256)+160*256;
+   var y=thisPlayset.rand(state,320*256)+80*256;
+   var theta=thisPlayset.rand(state,360);
+   ship.x=x;
+   ship.y=y;
+   ship.theta=theta;
+   ship.invincFrames=60;
+   ship.shotTimeout=60;
+   ship.xv=0;
+   ship.yv=0;
+  }
   this.rand(state);
   for(var i in connects) {
    var x=this.rand(state,320*256)+160*256;
    var y=this.rand(state,320*256)+80*256;
    var theta=this.rand(state,360);
-   state.ships.push({
+   var s={
     controller:connects[i].c,
     username:connects[i].u,
     profile:connects[i].d,
-    theta:theta,
-    x:x,
-    y:y,
-    xv:0,
-    yv:0,
-    invincFrames:60,
-    shotTimeout:60,
-   });
+   };
+   respawnShip(s);
+   state.ships.push(s);
   }
   var updates={}
   for(var i in inputs) {
@@ -169,6 +178,7 @@ registerPlayset({
    return disconnects.indexOf(s.controller)==-1;
   });
   var ships=state.ships
+  var shots=state.shots
   for(var i in ships) {
    var c=ships[i].controller;
    if(updates[c]) {
@@ -191,21 +201,40 @@ registerPlayset({
    ships[i].x+=ships[i].xv;
    ships[i].y+=ships[i].yv;
    if(ships[i].invincFrames) { --ships[i].invincFrames; }
-   if(ships[i].shotTimeout) { --ships[i].shotTimeout; }   
+   if(ships[i].shotTimeout) { --ships[i].shotTimeout; }
+   if(ships[i].shotTimeout==0 && updates[c][1]) {
+    shots.push({
+     x:ships[i].x,
+     y:ships[i].y,
+     xv:M.cos256(ships[i].theta)*6+ships[i].xv,
+     yv:M.sin256(ships[i].theta)*6+ships[i].yv,
+     controller:c
+    });
+    ships[i].shotTimeout=10;
+   }
    if(ships[i].x<0 || ships[i].y<0 ||
       ships[i].x>640*256 || ships[i].y>480*256) {
-    var x=this.rand(state,320*256)+160*256;
-    var y=this.rand(state,320*256)+80*256;
-    var theta=this.rand(state,360);
-    ships[i].x=x;
-    ships[i].y=y;
-    ships[i].theta=theta;
-    ships[i].invincFrames=60;
-    ships[i].shotTimeout=60;
-    ships[i].xv=0;
-    ships[i].yv=0;    
-   }   
+    respawnShip(ships[i]);
+   }
   }
+  for(var i in shots) {
+   shots[i].x+=shots[i].xv;
+   shots[i].y+=shots[i].yv;
+   for(var j in ships) {
+    if(ships[j].controller != shots[i].controller &&
+      ships[j].invincFrames==0 && !shots[i].done) {
+     var dx=ships[j].x-shots[i].x;
+     var dy=ships[j].y-shots[i].y;
+     if(dx*dx+dy*dy<(10*256)*(10*256)) {
+      respawnShip(ships[j]);
+      shots[i].done=true
+     }     
+    }
+   }
+  }
+  state.shots=shots.filter(function(s) {
+   return s.x>0 && s.x<640*256 && s.y>0 && s.y<480*256 && !s.done;
+  })
  },
  initUI:function(state) {
   var canvas=document.createElement("canvas");
@@ -220,6 +249,7 @@ registerPlayset({
  },
  refreshUI:function(state) {
   var ships=state.ships;
+  var shots=state.shots;  
   var context=clientState.context2d;
   context.fillStyle="black"
   context.fillRect(0,0,640,480);
@@ -250,6 +280,16 @@ registerPlayset({
     drawTriangle(5);
     context.fill();
    }
+  }
+  for(var i in shots) {
+   context.fillStyle="white";
+   context.beginPath();
+   context.arc(shots[i].x/256,
+	       shots[i].y/256,
+	       5,
+	       0,
+	       Math.PI*2)
+   context.fill();
   }
  },
  destroyUI:function() {

@@ -317,7 +317,7 @@ function onFrameAdvanceMessage(message) {
   var hash=playset.hashGameState(gameStates[pastHorizonFrameNumber]);
   if(message.h!=hash) {
    handleConnectionEnd();
-   showDisconnectReason("There is a bug in the game code: playset.hashGameState did not match the server's provided value.");
+   showDisconnectReason("Desynchronized from server game state. Try shift-reloading. If the problem persists, there may be a bug in the game logic.");
   }
   else {
    //console.log("Passed hash",hash);
@@ -542,6 +542,7 @@ function onGameFrameTimeout() {
    message.c=ownControllerID;
    onClientMessage(message);
   }
+  outgoingCommandQueue=[]
   
   var message={'k':'f',
 	       'f':expectedFrameNumber,
