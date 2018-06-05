@@ -29,3 +29,22 @@ run server.js somehow (TODO: daemonization instructions; you can just run it man
 If the process dies, everything that happened since it started will be forgotten. To retain user accounts and game state, stop it via the web interface's "clean shutdown" button.
 
 
+
+
+some concepts to help understand the architecture:
+
+A "game state" is a data object encapsulating everything game-specific at a particular "frame" (moment in time). A "playset" is the corresponding stateless code object. One playset is called repeatedly on many game states. web/playsets.js is special because both the server and client import it (with slightly different semantics). Writing game code once to run on both the client and server is the main reason that the server is in node.js.
+
+A "controller" is the login session of a user (by analogy with plugging in a gamepad); a user who logs in again is always assigned a new controller ID, and logic that sorts users to ensure determinism does so by the controller IDs.
+
+The server only stores one game state at a time per instance. This is the "past horizon" state, named that because it is old enough that no further inputs will retroactively modify it. The server knows which frame number the present state is, but never computes the present state.
+
+The server only sends clients the past horizon game state once per controller, when they log in. After that, clients do their own state computation based on game events. The server relays game events from each controller in an instance to each other controller, after sanitizing them to ensure a malicious client won't cause malformed event messages and a temporally confused one won't send messages stamped too far in the past or future.
+
+Server code is written with node.js's single-threaded event loop in mind. Once a network message or timer signal starts being handled, everything else is implicitly blocked until that handler exits. Using a separate event loop thread per instance, plus one for new connections that haven't been assigned to an instance yet, would be a logical way to add parallelism without requiring many synchronization locks to be added. There are a few subtle points that could arise in doing this and it isn't a priority, but the encapsulation of game logic into playsets means that game-specific code doesn't need to know about the subtleties.
+
+The client is aware of the past horizon state, but also does its best to compute the present state. To do this, it applies the events it knows about to create a chain of predicted states, one per frame, from the past horizon to the present. Events it doesn't know about (because they haven't reached it over the network yet) obviously aren't included here, and so the predictions get recomputed whenever a retroactive event arrives.
+
+The client marks its own events "unacked" locally when it sends them to the server. If the past horizon advances past one of these events before the server has acknowledged it, then the unacked event is removed from the client's past event history, forcing recomputation.
+
+Timestamps sent by the server are in milliseconds relative to the 0-point of the instance's frame numbering. There was never an actual frame 0, but the math for timestamp sync uses that as a baseline point to compute from. The client compares this to its own performance.now() in order to find a delta from client time to server time, so that it can then convert its performance.now() into an estimate of the server time. There's an assumption that network round-trips take roughly the same number of milliseconds each way; for fast enough network round-trips, the fact that this isn't literally true isn't a problem.
