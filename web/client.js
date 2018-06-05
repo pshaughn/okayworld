@@ -56,10 +56,14 @@ var playsets={}
 
 function registerPlayset(playset) {
  playsets[playset.getName()]=playset;
+ var defaultSerialization=!("serializeGameState" in playset);
  if(!("deserializeGameState" in playset)) {
   playset.deserializeGameState=function(str) {
    return JSON.parse(str);
   }
+ }
+ else {
+  defaultSerialization=false;
  }
  if(!("copyGameState" in playset)) {
   if("serializeGameState" in playset) {
@@ -72,6 +76,9 @@ function registerPlayset(playset) {
     return this.deserializeGameState(JSON.stringify(state));
    }
   }
+ }
+ if(defaultSerialization && !("hashGameState" in playset)) {
+  playset.hashGameState=defaultGameStateHash;
  }
  if(!("handleClientPrediction" in playset)) {
   playset.handleClientPrediction=function() {}
@@ -159,7 +166,6 @@ function onSocketMessage(e) {
 }
 
 function handleConnectionEnd() {
- socket=null;
  if(playset) {
   playset.destroyUI();
  }
@@ -175,6 +181,7 @@ function handleConnectionEnd() {
   socket.close();
  }
  catch(e) { /* was probably already closed */ }
+ socket=null;
  document.getElementById("waitUI").style.display="none";
  document.getElementById("gameUI").style.display="none";
  document.getElementById("loginUI").style.display="block";
@@ -304,8 +311,18 @@ function onErrorMessage(message) {
  }
 }
 
-function onFrameAdvanceMessage() {
+function onFrameAdvanceMessage(message) {
  advanceHorizonState();
+ if("h" in message) {
+  var hash=playset.hashGameState(gameStates[pastHorizonFrameNumber]);
+  if(message.h!=hash) {
+   handleConnectionEnd();
+   showDisconnectReason("There is a bug in the game code: playset.hashGameState did not match the server's provided value.");
+  }
+  else {
+   //console.log("Passed hash",hash);
+  }
+ }
 }
 
 function onClientMessage(message) {
@@ -560,6 +577,71 @@ function acceptAck(message) {
      (message.k=='f' || message.s==events[i].s)) {
    delete events[i].unacked;
   }
+ }
+}
+
+
+function defaultGameStateHash(o) {
+ function combine(a,b) {
+  return (a*65537+b*8191+127)%2147483647
+ }
+ function recurseContainer(container) {
+  var hash=0;
+  var keys=Object.getOwnPropertyNames(container); 
+  keys.sort();
+  // if it was an array we now have LEXICOGRAPHIC order, and also
+  // "length" at the end... but that's fine! all that matters is that
+  // the client and server get the same thing deterministically, and including
+  // the length lets us distinguish [,,] from [,,,]
+  for(var i=0;i<keys.length;++i) {
+   var key=keys[i];
+   hash=combine(hash,recurseString(key));
+   hash=combine(hash,defaultGameStateHash(container[key]));
+  }
+  return combine(hash,200);
+ }
+
+ function recurseString(key) {
+  var hash=0;
+  for(var i=0;i<key.length;++i) {
+   hash=combine(hash,key.charCodeAt(i));
+  }
+  return combine(hash,300);
+ }
+
+ if(Object.is(o,null)) {
+  return 100;
+ }
+ else if(Object.is(o,undefined)) {
+  return 101;
+ }
+ else if(Object.is(o,true)) {
+  return 102;
+ }
+ else if(Object.is(o,false)) {
+  return 103;
+ }
+ else if(Object.is(o,-0)) {
+  return 104;
+ }
+ else if(Array.isArray(o)) {
+  return combine(105,recurseContainer(o));
+ }
+
+ var t=typeof o;
+ switch(t) {
+ case 'number':
+  return combine(106,recurseString(o.toString()));
+				     
+ case 'string':
+  return combine(107,recurseString(o));
+ case 'object':
+  return combine(108,recurseContainer(o));
+
+ default:
+  // symbol, function, or host object - this object probably isn't
+  // even JSON-serializable but let's return something
+  return combine(109,recurseString(o.toString()));
  }
 }
 

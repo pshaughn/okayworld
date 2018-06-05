@@ -55,8 +55,13 @@
      it's not okay to be wrong about but is okay to delay, clearing out
      tracked data from old handleClientPrediction calls
      Once per frame, in order. Do not mutate state! [default is a no-op]
-
-
+   .hashGameState(gameState): return a number or string that will be
+     equal on equal game states. If this is absent and deserializeGameState
+     and serializedGameState were both left default, this will also take a
+     default. If that creates spurious hash mismatches but you don't want
+     to define your own hash function, you can just set hashGameState to
+     null and the playset won't try to hash-sync.
+			      
    Client-only methods may access and mutate the DOM. Additionally,
    they can call support functions that are defined in the client, including:
    sendGameCommand(str): issue a command event (next time a frame is sent)

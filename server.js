@@ -65,6 +65,7 @@
    t:timingPong,
    c:controllerID, f:frameNumberOfSerializedState , r:fps}
    {k:"F"} (frame horizon has advanced)
+   {k:"F", h: hash} (frame horizon has advanced, and client should sync-test)
 
    client-to-server network messages for normal login:
    "o" or "f" instance-controller events
@@ -121,6 +122,7 @@ var selfServeUserCounts; // how many self-serve users there are from an IP
 const FPS=30;
 const PAST_HORIZON_FRAMES=FPS/2, FUTURE_HORIZON_FRAMES=FPS*3/2;
 const TIMEOUT_MILLIS=5000;
+const DEFAULT_HASH_SYNC_INTERVAL=FPS*5;
 
 const MIN_USERNAME_LENGTH=3;
 const MAX_USERNAME_LENGTH=16;
@@ -129,21 +131,33 @@ const MAX_PASSWORD_LENGTH=64;
 const MAX_USER_CONFIG_LENGTH=10000;
 const MAX_INBOUND_MESSAGE_LENGTH=20000;
 
+
 const STATE_FILENAME="./serverstate.json";
 
 var playsets;
 
 function registerPlayset(playset) {
+ var defaultSerialization=true
  if(!("serializeGameState" in playset)) {
   playset.serializeGameState=function(gameState) {
    return JSON.stringify(gameState);
   }
  }
+ else {
+  defaultSerialization=false;
+ } 
  if(!("deserializeGameState" in playset)) {
   playset.deserializeGameState=function(gameStateString) {
    return JSON.parse(gameStateString);
   }
  }
+ else {
+  defaultSerialization=false;
+ }
+ if(defaultSerialization && !("hashGameState" in playset)) {
+  playset.hashGameState=defaultGameStateHash;
+ }
+ 
  // server doesn't call copy or advanceClient so doesn't need their defaults
  playsets[playset.getName()]=playset;
 }
@@ -894,8 +908,26 @@ function advanceHorizonState(instance) {
   delete instance.pastHorizonControllerStatus[disconnects[i]];
  }
  ++instance.pastHorizonFrameNumber;
- var msg=JSON.stringify({"k":"F"});
- for(var i in instance.broadcastControllers) {
+ 
+ var hashFrame=false
+ if(instance.playset.hashGameState) {
+  if("hashSyncInterval" in config) {
+   hashFrame=(instance.pastHorizonFrameNumber%config.hashSyncInterval==0);
+  }
+  else {
+   hashFrame=(instance.pastHorizonFrameNumber%DEFAULT_HASH_SYNC_INTERVAL==0);
+  }
+ }
+ if(hashFrame) {
+  var hash=instance.playset.hashGameState(instance.pastHorizonState);
+  var msg=JSON.stringify({"k":"F",
+			  "h":hash});
+ }
+ else {
+  var msg=JSON.stringify({"k":"F"});
+ }
+
+  for(var i in instance.broadcastControllers) {
   var controller=instance.broadcastControllers[i];
   try {
    controller.socket.send(msg);
@@ -903,6 +935,72 @@ function advanceHorizonState(instance) {
   catch(e) {
    controllerError(controller,"server could not send event");
   }
+ }
+
+
+}
+
+function defaultGameStateHash(o) {
+ function combine(a,b) {
+  return (a*65537+b*8191+127)%2147483647
+ }
+ function recurseContainer(container) {
+  var hash=0;
+  var keys=Object.getOwnPropertyNames(container); 
+  keys.sort();
+  // if it was an array we now have LEXICOGRAPHIC order, and also
+  // "length" at the end... but that's fine! all that matters is that
+  // the client and server get the same thing deterministically, and including
+  // the length lets us distinguish [,,] from [,,,]
+  for(var i=0;i<keys.length;++i) {
+   var key=keys[i];
+   hash=combine(hash,recurseString(key));
+   hash=combine(hash,defaultGameStateHash(container[key]));
+  }
+  return combine(hash,200);
+ }
+
+ function recurseString(key) {
+  var hash=0;
+  for(var i=0;i<key.length;++i) {
+   hash=combine(hash,key.charCodeAt(i));
+  }
+  return combine(hash,300);
+ }
+
+ if(Object.is(o,null)) {
+  return 100;
+ }
+ else if(Object.is(o,undefined)) {
+  return 101;
+ }
+ else if(Object.is(o,true)) {
+  return 102;
+ }
+ else if(Object.is(o,false)) {
+  return 103;
+ }
+ else if(Object.is(o,-0)) {
+  return 104;
+ }
+ else if(Array.isArray(o)) {
+  return combine(105,recurseContainer(o));
+ }
+
+ var t=typeof o;
+ switch(t) {
+ case 'number':
+  return combine(106,recurseString(o.toString()));
+				     
+ case 'string':
+  return combine(107,recurseString(o));
+ case 'object':
+  return combine(108,recurseContainer(o));
+
+ default:
+  // symbol, function, or host object - this object probably isn't
+  // even JSON-serializable but let's return something
+  return combine(109,recurseString(o.toString()));
  }
 }
 
