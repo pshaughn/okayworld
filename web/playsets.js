@@ -11,23 +11,49 @@
    All playset operations need to be synchronous and not start anything
    that isn't.
 
-   Playsets must have:
-   .getName(): return constant string different from any other playset name
-   .advanceGameState(gameState, connects, commands, inputs, disconnects):
-     -- gameState is a game state
-     -- connects is a list of {c:controllerID, u:username, d:userConfigString}
-     -- commands is a list of {c:controllerID, o:commandString}
-     -- inputs is a list of {c:controllerID, i:inputString}
-     -- disconnects is a list of controller IDs
-     mutate game state by applying these and one frame's worth of game logic,
-     without referencing anything dynamic. unexpected arguments must be
-     tolerated, including redundant connects/disconnects, bad command strings,
-     bad input strings, and completely arbitrary config strings, without any 
-     nondeterminism in the result (except the data types of inputs will 
-     be the correct data types and don't need checking, and the order of 
-     items in each list can be trusted as deterministic)
+   The meat of a playset's game logic must be in one of these two forms:
+   (1) a single monolothic game-logic-running function
+    .advanceGameState(gameState, connects, commands, inputs, disconnects):
+      -- gameState is a game state
+      -- connects is a list of {c:controllerID, u:username, d:userConfigString}
+      -- commands is a list of {c:controllerID, o:commandString, a:argString}
+      -- inputs is a list of {c:controllerID, i:inputString}
+      -- disconnects is a list of controller IDs
+      mutate game state by applying these and one frame's worth of game logic,
+      without referencing anything dynamic or doing anything nondeterministic.
+      unexpected input strings, arg strings, and user config strings must be 
+      tolerated in a way that doesn't introduce any nondeterminism. unexpected
+      command strings will not happen, and controller IDs will only be seen
+      from their connect frame to their disconnect frame inclusive.
+   (2) several smaller functions.
+    .applyConnect(gameState,controllerID,username,userConfigString):
+     required, mutate game state to account for the connect
+    .applyCommand(gameState,controllerID,commandString,argString):
+     optional, mutate game state to account for the command
+    .applyControllerFrame(gameState,controllerID,inputString,commandList):
+     required, mutate game state to account for the input for 1 frame. 
+     commandList will contain 0 or more {o:commandString,a:argString} objects. 
+     This will be called on every frame from a controller's connect to its 
+     disconnect, inclusive. Logic for the "player sprite" can go here, or it 
+     can just queue up the input for .runStateFrame to handle it
+    .runStateFrame(gameState):
+     optional, mutate game state for 1 frame of time elapsing
+    .applyDisconnect(gameState,controllerID):
+     required, mutate game state to account for the disconnect
+    These are called in a strict order: all connects, then all commands,
+     then all controller frames, then runStateFrame, then all disconnects.
+     This implies all connects and commands can rely on the existence of a
+     subsequent controller frame and all controller frames can rely on
+     a subsequent runStateFrame (if defined). This entire batch of calls
+     is a single atomic operation as far as network and UI code is concerned;
+     refreshUI, serializeGameState, et al won't be called until the end of the
+     frame's batch and don't have to be tolerant of intermediate states.
+    
+   Playsets must also have:
+    .getName(): return constant string different from any other playset name
     .getCurrentInputString(): called only by client, encode current user inputs
-                              (not necessarily every frame, but be fast)
+                              (not necessarily every frame, but never more than
+			      once per frame)
     .initUI(gameState): called only by client
     .refreshUI(gameState,frameNumber): called only by client, 
      not necessarily every frame, possibly more than once for the same frame,
@@ -40,6 +66,16 @@
     .serializeGameState(gameState): convert game state to string
     
     Playsets may have:
+   .getCommandLimits(): return an object where keys are valid command
+                        strings, and values are how many of that
+			command can be issued by one controller in a frame. if
+			absent, command events won't happen at all.
+   .getInputLengthLimit(): return a number for the maximum input string length;
+                           if absent, no limiting is applied other than the
+			   maximum network message size
+   .getArgumentLengthLimit(): return a number for the maximum command
+                              argument string length; if absent, commands
+			      can only send length-0 argument strings.
    .copyGameState(gameState): return a deep copy of the game state
                               [default serializes and deserializes]
    .handleClientPrediction(gameState,frameNumber): called only by client, 
@@ -64,9 +100,15 @@
 			      
    Client-only methods may access and mutate the DOM. Additionally,
    they can call support functions that are defined in the client, including:
-   sendGameCommand(str): issue a command event (next time a frame is sent)
+   sendGameCommand(commandString [,argString]): issue a command event 
+    (next time a frame is sent; if rate limits block it it will be dropped
+    entirely, not delayed) Sending a game command as a side effect during 
+    getCurrentInputString is allowed, as is sending one from a DOM event 
+    that was set up by initUI or refreshUI.
+    
    isKeyHeld(code): boolean
-   isKeyFresh(code): boolean, true if there's a positive-edge since last frame
+   isKeyFresh(code): boolean, true if there's a positive-edge since last
+                     getCurrentInputString 
    getOwnControllerId(): returns controller ID of local player
 
    clientState is an otherwise-empty object in the client's global namespace,
@@ -76,9 +118,6 @@
    screenDiv is a DOM element in the client's global namespace that's a div 
    to put the game UI in; it's empty going into initUI
 
-   Sending a game command as a side effect during getCurrentInputString is
-   allowed, as is sending one from a DOM event that was set up by initUI or
-   refreshUI.
 
    Playsets may have utility functions; playset methods will always be called 
    with "this" as the playset. Playsets may also have fields, but use them
@@ -93,8 +132,8 @@
    will be delayed to happen on just the next non-missing one, not multiplied.
    For example, if positive-edge and negative-edge UI events matter, then those
    events should be explicit commands or implicit in input string changes,
-   not explicitly part of the input string. Mouse clicks should pack the
-   coordinates or a stable identifier for the targeted object into the command.
+   not explicitly part of the input string. Command arguments can provide the
+   "noun" for a command's "verb", such as mouse click coordinates.
 */
 
 const M={
@@ -132,6 +171,9 @@ const M={
 
 registerPlayset({
  RNG_MODULUS:Math.pow(2,31)-1,
+ getCommandLimits:function() {
+  return {'f':1}
+ },
  getName:function() { return "spaceduel" },
  rand:function(state,n) {
   state.prng=((state.prng||1)*16807)%this.RNG_MODULUS

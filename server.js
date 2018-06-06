@@ -41,6 +41,8 @@
    .username: string
    .config: user's config (as of moment of login)
    .instance: instance
+   .instanceName: instance name
+   .playsetName: instance.playset name
    .minFrameNumber: int, events stamped earlier than this are out-of-order
    .timeout: handle to a cancelable timeout
    .lastCommandNumber: last command serial number for this frame, or 0
@@ -144,6 +146,10 @@ const STATE_FILENAME="./serverstate.json";
 
 var playsets;
 
+var playsetCommandRateLimits;
+var playsetInputLengthLimits;
+var playsetArgumentLengthLimits;
+
 function registerPlayset(playset) {
  var defaultSerialization=true
  if(!("serializeGameState" in playset)) {
@@ -165,9 +171,34 @@ function registerPlayset(playset) {
  if(defaultSerialization && !("hashGameState" in playset)) {
   playset.hashGameState=defaultGameStateHash;
  }
+ var name=playset.getName();
  
  // server doesn't call copy or advanceClient so doesn't need their defaults
  playsets[playset.getName()]=playset;
+ if(playset.getCommandLimits) {
+  playsetCommandRateLimits[name]=playset.getCommandLimits();
+ }
+ else {
+  playsetCommandRateLimits[name]={}
+ }
+
+ if(playset.getInputLengthLimit) {
+  playsetInputLengthLimits[name]=playset.getInputLengthLimit();
+ }
+ else {
+  // setting default too high to have an effect, since the message would get
+  // the user kicked anyway
+  playsetInputLengthLimits[name]=MAX_INBOUND_MESSAGE_LENGTH;
+ }
+
+ if(playset.getArgumentLengthLimit) {
+  playsetArgumentLengthLimits[name]=playset.getArgumentLengthLimit();
+ }
+ else {
+  playsetArgumentLengthLimits[name]=MAX_INBOUND_MESSAGE_LENGTH;
+ }
+
+ 
 }
 
 function getPlayset(name) {
@@ -179,6 +210,9 @@ function loadPlaysets() {
  // and don't need reload logic
  global.registerPlayset=registerPlayset
  playsets={}
+ playsetInputLengthLimits={}
+ playsetArgumentLengthLimits={}
+ playsetCommandRateLimits={} 
  require("./web/playsets.js")
  delete global.registerPlayset
 }
@@ -309,7 +343,7 @@ function onSocketConnection(socket,request) {
   socket:socket,
   remoteAddress:request.connection.remoteAddress,
   isLocal:isLocal,
-  lifecycle:"new"
+  lifecycle:"new",
  }
  socket.on('message',onSocketMessage);
  socket.on('error',onSocketError);
@@ -463,6 +497,8 @@ function onLoginMessage(controller,message) {
  var instance=instances[instanceName];
  unsuspendInstance(instance);
  controller.instance=instance;
+ controller.instanceName=instanceName;
+ controller.playsetName=instance.playset.getName();
  controller.username=""+message.u;
 
  controller.socket.send(JSON.stringify({
@@ -489,7 +525,8 @@ function makeControllerLive(controller) {
 
  controller.lastCommandNumber=0;
  controller.minFrameNumber=instanceFrameNow;
-
+ controller.commandRateCounters={}
+ 
  var connectEvent={
   "c":controller.id,
   "u":controller.username,
@@ -561,13 +598,19 @@ function disconnectController(controller) {
 
 function onFrameMessage(controller,message) {
  if(validateFrameOrCommandMessage(controller,message)) {
+  var inp=""+message.i
+  if(inp.length>playsetInputLengthLimits[controller.playsetName]) {
+   controllerError(controller,"client sent too-large input message");
+   return;
+  }  
   controller.minFrameNumber=message.f+1;
   controller.lastCommandNumber=0;
+  controller.commandRateCounters={}
   var event={
    "c":controller.id,
    "f":message.f,
    "k":"f",
-   "i":""+message.i
+   "i":inp
   };
   broadcastEventToInstance(controller.instance,event,true);
   resetConnectionTimeout(controller);
@@ -580,14 +623,33 @@ function onCommandMessage(controller,message) {
   var serial=message.s|0;
   if(!serial) {
    controllerError(controller,"client sent command message without serial");
+   return;
+  }
+  var arg=(message.a||"")+""
+  var playsetName=controller.playsetName;
+  if(arg.length>playsetArgumentLengthLimits[playsetName]) {
+   controllerError(controller,"client sent too-large command argument");
+   return;
+  }
+  var cmd=message.o+""
+  if(!(cmd in playsetCommandRateLimits[playsetName])) {
+   controllerError(controller,"client sent invalid command for this playset");
+   return;
+  }
+  if(cmd in controller.commandRateCounters &&
+     controller.commandRateCounters[cmd]>=
+     playsetCommandRateLimits[playsetName][cmd]) {
+   controllerError(controller,"client exceeded command rate limit");
+   return;
   }
   if(message.f>controller.minFrameNumber) {
    // the point of retroactive event acceptance moves forward,
    // since we won't accept an event stamped for a frame any earlier
    // than a seen command; having moved that point forward,
-   // we allow command serial numbers to reset.
+   // we allow command serial numbers and rate limits to reset.
    controller.minFrameNumber=message.f;
    controller.lastCommandNumber=0;
+   controller.commandRateCounters={}
   }
   if(serial<=controller.lastCommandNumber) {
    controllerError(controller,"client sent out-of-order command message");
@@ -596,11 +658,17 @@ function onCommandMessage(controller,message) {
    "c":controller.id,
    "f":message.f,
    "k":"o",
-   "o":""+message.o,
+   "o":cmd,
+   "a":arg,
    "s":serial,
   }
   controller.lastCommandNumber=serial;
-
+  if(cmd in controller.commandRateCounters) {
+   ++controller.commandRateCounters[cmd];
+  }
+  else {
+   controller.commandRateCounters[cmd]=1;
+  }
 
   broadcastEventToInstance(controller.instance,event,false);
   resetConnectionTimeout(controller);
@@ -961,7 +1029,7 @@ function advanceHorizonState(instance) {
    connects.push({"c":events[i].c,"u":events[i].u,"d":events[i].d});
   }
   if(events[i].k=="o") {
-   commands.push({"c":events[i].c,"o":events[i].o});
+   commands.push({"c":events[i].c,"o":events[i].o,"a":events[i].a});
   }
   if(events[i].k=="f") {
    if(events[i].c in instance.pastHorizonControllerStatus) {

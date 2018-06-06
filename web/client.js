@@ -53,6 +53,8 @@ var outgoingCommandQueue;
 var hasSocketOpened;
 
 var playsets={}
+var commandRateLimits, argumentLengthLimit, inputLengthLimit;
+var commandRateCounters;
 
 function registerPlayset(playset) {
  playsets[playset.getName()]=playset;
@@ -219,6 +221,12 @@ function onInitialStateMessage(message) {
 
  clientState={}
  playset=getPlayset(message.p);
+ inputLengthLimit=("getInputLengthLimit" in playset)?
+  playset.getInputLengthLimit():Infinity;
+ argumentLengthLimit=("getArgumentLengthLimit" in playset)?
+  playset.getArgumentLengthLimit():Infinity;
+ commandRateLimits=("getCommandLimits" in playset)?
+  playset.getCommandLimits():Infinity;
  fps=message.r;
  pastHorizonFrameNumber=message.f;
  gameStates={}
@@ -228,6 +236,7 @@ function onInitialStateMessage(message) {
  ownControllerID=message.c;
  instanceEvents={};
  outgoingCommandQueue=[];
+ commandRateCounters={};
  //console.log(message)
  for(var i in message.e) {
   var submessage=message.e[i];
@@ -537,10 +546,18 @@ function onGameFrameTimeout() {
   ++expectedFrameNumber;
  }
  // done skips, now to handle the current frame
+
+ // getting input BEFORE processing outgoingCommandQueue, since
+ // the input-poller might push commands
+ var inp=playset.getCurrentInputString();
+ if(inp.length>inputLengthLimit) {
+  inp=inp.slice(0,inputLengthLimit);
+ }
  if(expectedFrameNumber==frame) {
   for(var i in outgoingCommandQueue) {
    var message={'k':'o',
-		'o':outgoingCommandQueue[i],
+		'o':outgoingCommandQueue[i].o,
+		'a':outgoingCommandQueue[i].a,
 		'f':expectedFrameNumber,
 		's':i+1};
    try { socket.send(JSON.stringify(message)); } catch(e) {}
@@ -549,10 +566,11 @@ function onGameFrameTimeout() {
    onClientMessage(message);
   }
   outgoingCommandQueue=[]
-  
+  commandRateCounters={}
+
   var message={'k':'f',
 	       'f':expectedFrameNumber,
-	       'i':playset.getCurrentInputString()};
+	       'i':inp};
   try { socket.send(JSON.stringify(message)); } catch(e) {}
   message.c=ownControllerID;
   frameSentTimestamps[expectedFrameNumber]=performance.now();
@@ -667,8 +685,23 @@ function getOwnControllerID() {
  return ownControllerID;
 }
 
-function sendGameCommand(commandString) {
- outgoingCommandQueue.push(commandString)
+function sendGameCommand(commandString,argString) {
+ if(commandString in commandRateLimits &&
+    (!(commandString in commandRateCounters) ||
+     commandRateCounters[commandString]<commandRateLimits[commandString]))
+ {
+  argString=(argString||"")+""
+  if(argString.length>argumentLengthLimit) {
+   argString=argString.slice(0,argumentLengthLimit);
+  }
+  if(commandString in commandRateCounters) {
+   commandRateCounters[commandString]+=1
+  }
+  else {
+   commandRateCounters[commandString]=1;
+  }
+  outgoingCommandQueue.push({o:commandString,a:argString});
+ }
 }
 
 function showDisconnectReason(reason) {
