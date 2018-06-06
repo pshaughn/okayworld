@@ -56,6 +56,34 @@ var playsets={}
 var commandRateLimits, argumentLengthLimit, inputLengthLimit;
 var commandRateCounters;
 
+function defaultPlaysetAdvanceGameState(state,connects,
+					commands,inputs,disconnects) {
+ // exact cutpaste between client and server code
+ for(var i in connects) {
+  this.applyConnect(state,connects[i].c,connects[i].u,connects[i].d);
+ }
+ var controllerCommands={}
+ for(var i in commands) {
+  if(this.applyCommand) {
+   this.applyCommand(state,commands[i].c,commands[i].o,commands[i].a);
+  }
+  if(commands[i].c in controllerCommands) {
+   controllerCommands[commands[i].c].push({o:commands[i].o,a:commands[i].a});
+  }
+  else {
+   controllerCommands[commands[i].c]=[{o:commands[i].o,a:commands[i].a}]
+  }
+ }
+ for(var i in inputs) {
+    this.applyControllerFrame(state,inputs[i].c,inputs[i].i,
+			      controllerCommands[inputs[i].c]||[]);
+ }
+ if(this.applyStateFrame) { this.applyStateFrame(state); }
+ for(var i in disconnects) {
+  this.applyDisconnect(state,disconnects[i]);
+ }
+}
+
 function registerPlayset(playset) {
  playsets[playset.getName()]=playset;
  var defaultSerialization=!("serializeGameState" in playset);
@@ -87,7 +115,10 @@ function registerPlayset(playset) {
  }
  if(!("handleClientConfirmation" in playset)) {
   playset.handleClientConfirmation=function() {}
- } 
+ }
+ if(!("advanceGameState" in playset)) {
+  playset.advanceGameState=defaultPlaysetAdvanceGameState
+ }
 }
 
 function getPlayset(name) {
@@ -566,7 +597,6 @@ function onGameFrameTimeout() {
    onClientMessage(message);
   }
   outgoingCommandQueue=[]
-  commandRateCounters={}
 
   var message={'k':'f',
 	       'f':expectedFrameNumber,
@@ -579,6 +609,7 @@ function onGameFrameTimeout() {
   var state=getEstimatedGameState(expectedFrameNumber);
   playset.handleClientPrediction(state,expectedFrameNumber);
   ++expectedFrameNumber;
+  commandRateCounters={}
   keysFreshTracker={}
  }
 

@@ -35,16 +35,16 @@
      commandList will contain 0 or more {o:commandString,a:argString} objects. 
      This will be called on every frame from a controller's connect to its 
      disconnect, inclusive. Logic for the "player sprite" can go here, or it 
-     can just queue up the input for .runStateFrame to handle it
-    .runStateFrame(gameState):
+     can just queue up the input for .applyStateFrame to handle it
+    .applyStateFrame(gameState):
      optional, mutate game state for 1 frame of time elapsing
     .applyDisconnect(gameState,controllerID):
      required, mutate game state to account for the disconnect
     These are called in a strict order: all connects, then all commands,
-     then all controller frames, then runStateFrame, then all disconnects.
+     then all controller frames, then state frame, then all disconnects.
      This implies all connects and commands can rely on the existence of a
      subsequent controller frame and all controller frames can rely on
-     a subsequent runStateFrame (if defined). This entire batch of calls
+     a subsequent applyStateFrame (if defined). This entire batch of calls
      is a single atomic operation as far as network and UI code is concerned;
      refreshUI, serializeGameState, et al won't be called until the end of the
      frame's batch and don't have to be tolerant of intermediate states.
@@ -134,7 +134,55 @@
    events should be explicit commands or implicit in input string changes,
    not explicitly part of the input string. Command arguments can provide the
    "noun" for a command's "verb", such as mouse click coordinates.
+
+   playset signature summary:
+    getName()=>static string
+
+    [basic game logic]
+    applyConnect(mutable state,connectionID,username,profileString)
+    applyControllerFrame(mutable state,connectionID,inputString,commands)
+     in which commands is an array of 0+ {o:commandString, a:argumentString}
+    applyStateFrame(mutable state)
+    applyDisconnect(mutable state, connectionID)
+
+    [alternate, monolithic-function game logic]
+    advanceGameState(mutable state,connects,commands,inputs,disconnectIDs)
+
+    [used on client only]
+    getCurrentInputString()=>dynamic string
+    initUI(state) updates client DOM
+    refreshUI(state) updates client DOM
+    destroyUI(state) updates client DOM
+
+    [client only, not required]
+    handleClientPrediction(state.frameNumber) updates client DOM
+    handleClientConfirmation(state,frameNumber) updates client DOM
+
+    [if using commands]
+    getCommandLimits()=>static object from command strings to numbers
+
+    [if using commands and not handling them in applyControllerFrame]
+    applyCommandFrame(mutable state, commandString, argumentString)
+
+    [if game states aren't JSON-compatible]
+    serializeGameState(state)=>string
+    deserializeGameState(string)=>state
+    copyGameState(state)=>state
+
+    [not required, but help server protect against malicious clients]
+    getInputLengthLimit()=>static number
+    getArgumentLengthLimit()=>static number
+
+    [not required, but helps client detect playset bugs]
+    hashGameState(state)=>number or string
+
+    
+   });
+   
+
 */
+
+
 
 const M={
  SINE_TABLE:[
@@ -167,6 +215,32 @@ const M={
  cos256:function(degrees) {
   return M.sin256(degrees+90);
  },
+ forEachAscending:function(collection,thunk,thisArg) {
+  if(collection.isArray) {
+   forEach(collection,thunk);
+  }
+  else {
+   var names=Object.getOwnPropertyNames(collection);
+   M.sortNumerically(names);
+   for(var i=0;i<names.length;++i) {
+    var name=names[i];
+    if(name in collection) {
+     thunk.call(thisArg,collection[name],name);
+    }
+   }   
+  }
+ },
+ sortNumerically:function(list) {
+  list.sort(function(a,b) {
+   if(+a<+b) { return -1; }
+   if(+b<+a) { return 1; }
+   if(a<b) { return -1; }
+   if(b<a) { return 1; }
+   if(a+""<b+"") { return -1; }
+   if(b+""<a+"") { return 1; }
+   return 0;
+  });
+ }
 }
 
 registerPlayset({
@@ -180,103 +254,97 @@ registerPlayset({
   return state.prng%n;
  },
 
- advanceGameState:function(state,connects,commands,inputs,disconnects) {
-  var thisPlayset=this;
-  function respawnShip(ship) {
-   var x=thisPlayset.rand(state,320*256)+160*256;
-   var y=thisPlayset.rand(state,320*256)+80*256;
-   var theta=thisPlayset.rand(state,360);
-   ship.x=x;
-   ship.y=y;
-   ship.theta=theta;
-   ship.invincFrames=60;
-   ship.shotTimeout=60;
-   ship.xv=0;
-   ship.yv=0;
+ respawnShip:function(state,ship) {
+  var x=this.rand(state,320*256)+160*256;
+  var y=this.rand(state,320*256)+80*256;
+  var theta=this.rand(state,360);
+  ship.x=x;
+  ship.y=y;
+  ship.theta=theta;
+  ship.invincFrames=60;
+  ship.shotTimeout=60;
+  ship.xv=0;
+  ship.yv=0;
+ },
+ 
+ applyConnect:function(state,controllerID,username,profile) {
+  var x=this.rand(state,320*256)+160*256;
+  var y=this.rand(state,320*256)+80*256;
+  var theta=this.rand(state,360);
+  var s={
+   controller:controllerID,
+   username:username,
+   profile:profile,
+  };
+  this.respawnShip(state,s);
+  state.ships[controllerID]=s;
+ },
+ applyControllerFrame:function(state,controllerID,input,commands) {
+  var ship=state.ships[controllerID];
+  if(input.indexOf("l")!=-1) { ship.theta-=3; }
+  if(input.indexOf("r")!=-1) { ship.theta+=3; }
+  ship.theta=M.mod(ship.theta,360);
+  if(input.indexOf("u")!=-1) {
+   ship.xv+=M.trunc(M.cos256(ship.theta)/2);
+   ship.yv+=M.trunc(M.sin256(ship.theta)/2);
   }
+  ship.xv=M.trunc(ship.xv*127/128);
+  ship.yv=M.trunc(ship.yv*127/128);
+  var v2=ship.xv*ship.xv+ship.yv*ship.yv;
+  if(v2>1024*1024) {
+   var v=M.floorsqrt(v2);
+   ship.xv=M.trunc(ship.xv*1024/v);
+   ship.yv=M.trunc(ship.yv*1024/v);
+  }
+  ship.x+=ship.xv;
+  ship.y+=ship.yv;
+  if(ship.invincFrames) { --ship.invincFrames; }
+  if(ship.shotTimeout) { --ship.shotTimeout; }
+  if(ship.shotTimeout==0 && commands.length>0) {
+   state.shots.push({
+    x:ship.x,
+    y:ship.y,
+    xv:M.cos256(ship.theta)*6+ship.xv,
+    yv:M.sin256(ship.theta)*6+ship.yv,
+    controller:controllerID
+   });
+   ship.shotTimeout=10;
+  }
+  if(ship.x<0 || ship.y<0 ||
+      ship.x>640*256 || ship.y>480*256) {
+   this.respawnShip(state,ship);
+  }
+ },
+ applyStateFrame:function(state) {
   this.rand(state);
-  for(var i in connects) {
-   var x=this.rand(state,320*256)+160*256;
-   var y=this.rand(state,320*256)+80*256;
-   var theta=this.rand(state,360);
-   var s={
-    controller:connects[i].c,
-    username:connects[i].u,
-    profile:connects[i].d,
-   };
-   respawnShip(s);
-   state.ships.push(s);
-  }
-  var updates={}
-  for(var i in inputs) {
-   updates[inputs[i].c]=[inputs[i].i];
-  }
-  for(var i in commands) {
-   if(commands[i].o=="f" && commands[i].c in updates) {
-    updates[commands[i].c][1]=true;
-   }
-  }
-  state.ships=state.ships.filter(function(s) {
-   return disconnects.indexOf(s.controller)==-1;
-  });
   var ships=state.ships
   var shots=state.shots
   for(var i in ships) {
    var c=ships[i].controller;
-   if(updates[c]) {
-    if(updates[c][0].indexOf("l")!=-1) { ships[i].theta-=3; }
-    if(updates[c][0].indexOf("r")!=-1) { ships[i].theta+=3; }
-    ships[i].theta=M.mod(ships[i].theta,360);
-    if(updates[c][0].indexOf("u")!=-1) {
-     ships[i].xv+=M.trunc(M.cos256(ships[i].theta)/2);
-     ships[i].yv+=M.trunc(M.sin256(ships[i].theta)/2);
-    }
-   }
-   ships[i].xv=M.trunc(ships[i].xv*127/128);
-   ships[i].yv=M.trunc(ships[i].yv*127/128);
-   var v2=ships[i].xv*ships[i].xv+ships[i].yv*ships[i].yv;
-   if(v2>1024*1024) {
-    var v=M.floorsqrt(v2);
-    ships[i].xv=M.trunc(ships[i].xv*1024/v);
-    ships[i].yv=M.trunc(ships[i].yv*1024/v);
-   }
-   ships[i].x+=ships[i].xv;
-   ships[i].y+=ships[i].yv;
-   if(ships[i].invincFrames) { --ships[i].invincFrames; }
-   if(ships[i].shotTimeout) { --ships[i].shotTimeout; }
-   if(ships[i].shotTimeout==0 && updates[c][1]) {
-    shots.push({
-     x:ships[i].x,
-     y:ships[i].y,
-     xv:M.cos256(ships[i].theta)*6+ships[i].xv,
-     yv:M.sin256(ships[i].theta)*6+ships[i].yv,
-     controller:c
-    });
-    ships[i].shotTimeout=10;
-   }
-   if(ships[i].x<0 || ships[i].y<0 ||
-      ships[i].x>640*256 || ships[i].y>480*256) {
-    respawnShip(ships[i]);
-   }
   }
+  var self=this;
   for(var i in shots) {
    shots[i].x+=shots[i].xv;
    shots[i].y+=shots[i].yv;
-   for(var j in ships) {
-    if(ships[j].controller != shots[i].controller &&
-      ships[j].invincFrames==0 && !shots[i].done) {
-     var dx=ships[j].x-shots[i].x;
-     var dy=ships[j].y-shots[i].y;
+   M.forEachAscending(ships,function(ship) {
+    if(ship.controller != shots[i].controller &&
+       ship.invincFrames==0 && !shots[i].done) {
+     var dx=ship.x-shots[i].x;
+     var dy=ship.y-shots[i].y;
      if(dx*dx+dy*dy<(10*256)*(10*256)) {
-      respawnShip(ships[j]);
+      this.respawnShip(state,ship);
       shots[i].done=true
      }     
     }
-   }
+   },this);
+   
+   state.shots=shots.filter(function(s) {
+    return s.x>0 && s.x<640*256 && s.y>0 && s.y<480*256 && !s.done;
+   })
   }
-  state.shots=shots.filter(function(s) {
-   return s.x>0 && s.x<640*256 && s.y>0 && s.y<480*256 && !s.done;
-  })
+ },
+ applyDisconnect:function(state,controllerID) {
+  delete state.ships[controllerID];
  },
  initUI:function(state) {
   var canvas=document.createElement("canvas");
@@ -298,31 +366,31 @@ registerPlayset({
   context.lineWidth=2;
   context.lineCap="round";
   context.lineJoin="round";
-  function drawTriangle(size) {
+  function drawTriangle(ship,size) {
    context.beginPath();
-   context.moveTo(ships[i].x/256+size*8/5*Math.cos(ships[i].theta*Math.PI/180),
-		  ships[i].y/256+size*8/5*Math.sin(ships[i].theta*Math.PI/180));
-   context.lineTo(ships[i].x/256+size*Math.cos((ships[i].theta+120)*Math.PI/180),
-		  ships[i].y/256+size*Math.sin((ships[i].theta+120)*Math.PI/180));
-   context.lineTo(ships[i].x/256+size*Math.cos((ships[i].theta-120)*Math.PI/180),
-		  ships[i].y/256+size*Math.sin((ships[i].theta-120)*Math.PI/180));
+   context.moveTo(ship.x/256+size*8/5*Math.cos(ship.theta*Math.PI/180),
+		  ship.y/256+size*8/5*Math.sin(ship.theta*Math.PI/180));
+   context.lineTo(ship.x/256+size*Math.cos((ship.theta+120)*Math.PI/180),
+		  ship.y/256+size*Math.sin((ship.theta+120)*Math.PI/180));
+   context.lineTo(ship.x/256+size*Math.cos((ship.theta-120)*Math.PI/180),
+		  ship.y/256+size*Math.sin((ship.theta-120)*Math.PI/180));
    context.closePath();   
   }
-  for(var i in ships) {
-   if(ships[i].invincFrames%2==0) {
-    var colors=get3ProfileColors(ships[i].username,ships[i].profile);
+  M.forEachAscending(ships,function(ship) {
+   if(ship.invincFrames%2==0) {
+    var colors=get3ProfileColors(ship.username,ship.profile);
 
     context.fillStyle=colors[0];
-    drawTriangle(10);
+    drawTriangle(ship,10);
     context.fill();
     context.fillStyle=colors[1];
-    drawTriangle(7.5);
+    drawTriangle(ship,7.5);
     context.fill();
     context.fillStyle=colors[2];
-    drawTriangle(5);
+    drawTriangle(ship,5);
     context.fill();
    }
-  }
+  });
   for(var i in shots) {
    context.fillStyle="white";
    context.beginPath();
