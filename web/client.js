@@ -128,7 +128,6 @@ function onSocketOpen() {
 }
 
 function onSocketMessage(e) {
- console.log(e.data)
  var message=JSON.parse(e.data);
  switch(message.k) {
  case "E":
@@ -156,6 +155,7 @@ function onSocketMessage(e) {
   break;
  case "f": // could be ack of own, or could be someone else's 
   if(message.c==ownControllerID) {
+   handlePong(frameSentTimestamps[message.f],message.t)
    acceptAck(message);
   }
   else {
@@ -545,6 +545,7 @@ function onGameFrameTimeout() {
 		's':i+1};
    try { socket.send(JSON.stringify(message)); } catch(e) {}
    message.c=ownControllerID;
+   message.unacked=true;
    onClientMessage(message);
   }
   outgoingCommandQueue=[]

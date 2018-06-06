@@ -581,6 +581,14 @@ function onCommandMessage(controller,message) {
   if(!serial) {
    controllerError(controller,"client sent command message without serial");
   }
+  if(message.f>controller.minFrameNumber) {
+   // the point of retroactive event acceptance moves forward,
+   // since we won't accept an event stamped for a frame any earlier
+   // than a seen command; having moved that point forward,
+   // we allow command serial numbers to reset.
+   controller.minFrameNumber=message.f;
+   controller.lastCommandNumber=0;
+  }
   if(serial<=controller.lastCommandNumber) {
    controllerError(controller,"client sent out-of-order command message");
   }
@@ -592,6 +600,8 @@ function onCommandMessage(controller,message) {
    "s":serial,
   }
   controller.lastCommandNumber=serial;
+
+
   broadcastEventToInstance(controller.instance,event,false);
   resetConnectionTimeout(controller);
  }
