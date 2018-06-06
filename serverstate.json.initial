@@ -20,7 +20,7 @@
   },
   "testships": {
    "playsetName":"spaceduel",
-   "state": {"ships":[],"shots":[]}
+   "state": {"ships":{},"shots":[]}
   }
  }
 }
