@@ -178,11 +178,22 @@
 
     
    });
-   
 
+
+
+   M operations:
+   M.trunc(n): rounds toward 0
+   M.floorsqrt(n): just floor(sqrt(floor(n)))   
+   M.mod(a,b): like a%b but never negative
+   M.sin256(degrees): approximation of sin(degrees)*256
+   M.cos256(degrees): approximation of cos(degrees)*256
+   M.forEachAscending(collection,function(element,index),thisArg):
+    like forEach with deterministic key ordering
+   M.sortNumerically(array): like array.sort() but numbers and numeric strings
+    will be compared numerically (not every possible special case is handled;
+    intended use case is to sort the output of Object.getOwnPropertyNames)
+    
 */
-
-
 
 const M={
  SINE_TABLE:[
@@ -202,7 +213,7 @@ const M={
  },
  mod:function(a,b) {
   var result=a%Math.abs(b);
-  if(result<0) { return result+b; }
+  if(result<0) { return result+Math.abs(b); }
   return result;
  },
  sin256:function(degrees) {
@@ -217,7 +228,7 @@ const M={
  },
  forEachAscending:function(collection,thunk,thisArg) {
   if(collection.isArray) {
-   forEach(collection,thunk);
+   forEach(collection,thunk,thisArg);
   }
   else {
    var names=Object.getOwnPropertyNames(collection);
