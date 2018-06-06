@@ -128,10 +128,14 @@ function onSocketOpen() {
 }
 
 function onSocketMessage(e) {
+ console.log(e.data)
  var message=JSON.parse(e.data);
  switch(message.k) {
  case "E":
   onErrorMessage(message);
+  break;
+ case "W":
+  onInitialPingResponseMessage(message);
   break;
  case "S":
   onInitialStateMessage(message);
@@ -206,10 +210,11 @@ function onSocketClose() {
  }
 }
 
-function onInitialStateMessage(message) {
- 
- // get the pong measurement out of the way first, initialization may be slow
+function onInitialPingResponseMessage(message) {
  handlePong(loginSentTimestamp,message.t);
+}
+
+function onInitialStateMessage(message) {
  frameSentTimestamps={}
 
  clientState={}

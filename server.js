@@ -59,11 +59,11 @@
    {k:"D", d:completionString} (successful api call, hanging up)
    {k:"U", l:[instanceName... ordered], n:defaultInstanceName} (prelogin)
    any instance-controller event, which may additionally have "t" attached as a timing pong
+   {k:"W", t:timingPong} (login wait, with initial pong time)
    {k:"S", g:serializedGameState,  p:playsetName,
    x:{controllerID:{'u':username,'i':inputString}... },
    e:[instancecontrollerevents... unsorted],
-   t:timingPong,
-   c:controllerID, f:frameNumberOfSerializedState , r:fps}
+   c:controllerID, f:frameNumberOfSerializedState, r:fps} (login)
    {k:"F"} (frame horizon has advanced)
    {k:"F", h: hash} (frame horizon has advanced, and client should sync-test)
 
@@ -118,6 +118,9 @@ var instances; // map from instance names instance state objects
 var controllers; // map from controller ID numbers to controller objects
 var nextControllerID; // int
 var selfServeUserCounts; // how many self-serve users there are from an IP
+
+// maps from usernames to controller objects
+var inboxControllers, liveControllers, outboxControllers;
 
 var requiredOrigin; // if using https, need this origin or local loopback
 
@@ -246,6 +249,9 @@ function loadServerState() {
  }
  nextControllerID=o.nextControllerID;
  controllers={}
+ liveControllers={}
+ inboxControllers={}
+ outboxControllers={}
  instances={}
  for(var k in o.instances) {
   var inst=o.instances[k];  
@@ -302,7 +308,8 @@ function onSocketConnection(socket,request) {
   id:nextControllerID,
   socket:socket,
   remoteAddress:request.connection.remoteAddress,
-  isLocal:isLocal
+  isLocal:isLocal,
+  lifecycle:"new"
  }
  socket.on('message',onSocketMessage);
  socket.on('error',onSocketError);
@@ -330,6 +337,7 @@ function abandonConnectionTimeout(controller) {
  if(controller.timeout)
  {
   clearTimeout(controller.timeout);
+  delete controller.timeout;
  }
 }
 
@@ -432,7 +440,10 @@ function onPreloginMessage(controller,message) {
 }
 
 function onLoginMessage(controller,message) {
-
+ if(controller.lifecycle!="new") {
+  controllerError(controller,"client sent login message at inappropriate time");
+  return;
+ }
  if(!(message.u in users &&
       doesPasswordMatchHash(message.p,users[message.u].password))) {
   controllerError(controller,"incorrect username/password");
@@ -443,12 +454,42 @@ function onLoginMessage(controller,message) {
   controllerError(controller,"instance name does not exist");
   return;
  }
+ if(message.u in inboxControllers ||
+    message.u in liveControllers) {
+  controllerError(controller,"you are already logged in (check other browser tabs)");
+  return;
+ }
+  
  var instance=instances[instanceName];
- var instanceFrameNow=getPresentFrameNumber(instance);
+ unsuspendInstance(instance);
+ controller.instance=instance;
  controller.username=""+message.u;
+
+ controller.socket.send(JSON.stringify({
+  k:"W",
+  t:getTimingPongForInstance(instance)
+ }));
+ 
+ if(controller.username in outboxControllers) {
+  controller.lifecycle="inbox";
+  inboxControllers[controller.username]=controller;
+  // the next message is server-to-client, so the client is expected
+  // to be inactive and shouldn't be timed out
+  abandonConnectionTimeout(controller);
+ }
+ else {
+  makeControllerLive(controller);
+ }
+}
+
+function makeControllerLive(controller) {
+ controller.lifecycle="live"
+ liveControllers[controller.username]=controller;
+ var instanceFrameNow=getPresentFrameNumber(controller.instance);
+
  controller.lastCommandNumber=0;
  controller.minFrameNumber=instanceFrameNow;
- controller.instance=instances[instanceName];
+
  var connectEvent={
   "c":controller.id,
   "u":controller.username,
@@ -456,7 +497,6 @@ function onLoginMessage(controller,message) {
   "d":users[controller.username].config,
   "k":"c"
  };
- unsuspendInstance(controller.instance);
  broadcastEventToInstance(controller.instance,connectEvent,false);
  subscribeControllerToBroadcasts(controller);
  sendInstanceSnapshot(controller);
@@ -493,7 +533,10 @@ function controllerDone(controller,resultString) {
 }
 
 function disconnectController(controller) {
- if(controller.instance) {
+ if(controller.lifecycle=="live") {
+  controller.lifecycle="outbox"
+  outboxControllers[controller.username]=controller;  
+  delete liveControllers[controller.username]
   var frameNumber=getPresentFrameNumber(controller.instance);
   if(frameNumber<controller.minFrameNumber) {
    frameNumber=controller.minFrameNumber;
@@ -507,7 +550,10 @@ function disconnectController(controller) {
   broadcastEventToInstance(controller.instance,disconnectEvent,false);
  }
  abandonConnectionTimeout(controller);
- if(controller.id in controllers) {
+ if(controller.id in controllers && controller.lifecycle!="outbox") {
+  if(controller.lifecycle=="inbox") {
+   delete inboxControllers[controller.username];
+  }
   delete controllers[controller.id]
  }
  controller.disconnected=true;
@@ -553,6 +599,10 @@ function onCommandMessage(controller,message) {
 }
 
 function validateFrameOrCommandMessage(controller,message) {
+ if(controller.lifecycle!="live") {
+  controllerError(controller,"game message sent without a valid login");
+  return false
+ }
  if(!("f" in message)) {
   controllerError(controller,"malformed message, no frame number");
   return false
@@ -798,7 +848,6 @@ function sendInstanceSnapshot(controller) {
   g:instance.playset.serializeGameState(instance.pastHorizonState),
   f:instance.pastHorizonFrameNumber,
   e:eventsPile,
-  t:getTimingPongForInstance(instance),
   r:FPS,
  }
  controller.socket.send(JSON.stringify(snapshot)); 
@@ -813,10 +862,11 @@ function getTimingPongForInstance(instance) {
  // what is the difference between perftime now and
  // perftime at frame zero? This should stay near
  // getPresentFrameNumber*1000/FPS as frames advance in an
- // unsuspended instance.
+ // unsuspended instance. submillisecond precision would be pointless
+ // so flooring it to send fewer digits
  var timeZero=instance.pastHorizonPerfTime-
      (instance.pastHorizonFrameNumber*1000/FPS);
- return performance.now()-timeZero;
+ return Math.floor(performance.now()-timeZero);
 }
 
 function unsuspendInstance(instance) {
@@ -930,6 +980,13 @@ function advanceHorizonState(instance) {
  instance.playset.advanceGameState(instance.pastHorizonState,
 				   connects,commands,inputs,disconnects);
  for(var i in disconnects) {
+  var username=instance.pastHorizonControllerStatus[disconnects[i]].u;
+  if(inboxControllers[username]) {
+   var ctr=inboxControllers[username];
+   delete inboxControllers[username];
+   makeControllerLive(ctr);
+  }
+  delete outboxControllers[username];
   delete instance.pastHorizonControllerStatus[disconnects[i]];
  }
  ++instance.pastHorizonFrameNumber;
@@ -1045,3 +1102,5 @@ function defaultGameStateHash(o) {
 if(require.main==module) {
  initServer();
 }
+
+
