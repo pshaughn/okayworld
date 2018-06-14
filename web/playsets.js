@@ -100,16 +100,24 @@
 			      
    Client-only methods may access and mutate the DOM. Additionally,
    they can call support functions that are defined in the client, including:
+
    sendGameCommand(commandString [,argString]): issue a command event 
     (next time a frame is sent; if rate limits block it it will be dropped
     entirely, not delayed) Sending a game command as a side effect during 
     getCurrentInputString is allowed, as is sending one from a DOM event 
-    that was set up by initUI or refreshUI.
-    
+    that was set up by initUI or refreshUI.    
    isKeyHeld(code): boolean
    isKeyFresh(code): boolean, true if there's a positive-edge since last
                      getCurrentInputString 
    getOwnControllerId(): returns controller ID of local player
+   createScalingCanvas(smallCanvas): returns a canvas that's centered in
+                                     screenDiv and tracks the given canvas
+				     at a pixel size multiple. calling
+				     it again abandons the old one. the return
+				     value can be ignored but might be
+				     useful for attaching mouse event handlers
+   
+
 
    clientState is an otherwise-empty object in the client's global namespace,
    made available so client-only methods can avoid having to put things in the
@@ -117,7 +125,6 @@
 
    screenDiv is a DOM element in the client's global namespace that's a div 
    to put the game UI in; it's empty going into initUI
-
 
    Playsets may have utility functions; playset methods will always be called 
    with "this" as the playset. Playsets may also have fields, but use them
@@ -266,8 +273,8 @@ registerPlayset({
  },
 
  respawnShip:function(state,ship) {
-  var x=this.rand(state,320*256)+160*256;
-  var y=this.rand(state,320*256)+80*256;
+  var x=this.rand(state,160*256)+80*256;
+  var y=this.rand(state,160*256)+40*256;
   var theta=this.rand(state,360);
   ship.x=x;
   ship.y=y;
@@ -279,8 +286,8 @@ registerPlayset({
  },
  
  applyConnect:function(state,controllerID,username,profile) {
-  var x=this.rand(state,320*256)+160*256;
-  var y=this.rand(state,320*256)+80*256;
+  var x=this.rand(state,160*256)+80*256;
+  var y=this.rand(state,160*256)+40*256;
   var theta=this.rand(state,360);
   var s={
    controller:controllerID,
@@ -350,7 +357,7 @@ registerPlayset({
    },this);
    
    state.shots=shots.filter(function(s) {
-    return s.x>0 && s.x<640*256 && s.y>0 && s.y<480*256 && !s.done;
+    return s.x>0 && s.x<320*256 && s.y>0 && s.y<240*256 && !s.done;
    })
   }
  },
@@ -359,14 +366,14 @@ registerPlayset({
  },
  initUI:function(state) {
   var canvas=document.createElement("canvas");
-  canvas.width=640;
-  canvas.height=480;
+  canvas.width=320;
+  canvas.height=240;
   canvas.style.position="absolute";
   canvas.style.left="calc(50vw - 320px)"
   canvas.style.top="calc(50vh - 240px)"
   clientState.canvas=canvas;
   clientState.context2d=canvas.getContext("2d");
-  screenDiv.appendChild(canvas);
+  createScalingCanvas(canvas);
  },
  refreshUI:function(state) {
   var ships=state.ships;
@@ -414,7 +421,6 @@ registerPlayset({
   }
  },
  destroyUI:function() {
-  screenDiv.innerHTML="";
  },
  getCurrentInputString:function() {
   if(isKeyFresh("KeyZ")) {

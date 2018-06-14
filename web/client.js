@@ -19,9 +19,12 @@
 
 /* big global things */
 var socket; // null when connection is closed/invalid
-var clientState;
+var clientState; // for playset to hold non-gamestate things in
+
+/* UI things */
 var keysHeldTracker, keysFreshTracker;
 var screenDiv;
+var smallScalingCanvas, largeScalingCanvas, largeScalingContext;
 
 /* timing things */
 var loginSentTimestamp; // for initial pong synchronization
@@ -206,6 +209,7 @@ function handleConnectionEnd() {
  if(playset) {
   playset.destroyUI();
  }
+ screenDiv.innerHTML="";
  if(animationFrameRequestHandle) {
   cancelAnimationFrame(animationFrameRequestHandle);
   animationFrameRequestHandle=null;
@@ -296,6 +300,7 @@ function onInitialStateMessage(message) {
  screenDiv=document.getElementById("gameUI");
  screenDiv.innerHTML="";
  screenDiv.style.display="block";
+ screenDiv.style.position="relative";
  if(!keysHeldTracker) {
   window.addEventListener('keydown',onKeydown)
   window.addEventListener('keyup',onKeyup)
@@ -357,7 +362,10 @@ function onErrorMessage(message) {
 }
 
 function onFrameAdvanceMessage(message) {
- advanceHorizonState();
+ //console.log(pastHorizonFrameNumber,estimatePresentTimeFrameNumber(),message);
+ while(pastHorizonFrameNumber<message.f) {
+  advanceHorizonState();
+ }
  if("h" in message) {
   var hash=playset.hashGameState(gameStates[pastHorizonFrameNumber]);
   if(message.h!=hash) {
@@ -365,7 +373,7 @@ function onFrameAdvanceMessage(message) {
    showDisconnectReason("Desynchronized from server game state. Try shift-reloading. If the problem persists, there may be a bug in the game logic.");
   }
   else {
-   //console.log("Passed hash",hash);
+    //console.log("Passed hash",hash);
   }
  }
 }
@@ -563,6 +571,7 @@ function onAnimationFrame() {
  var state=getEstimatedGameState(frame);
  if(frame!=lastFrameNumberDrawn) {
   playset.refreshUI(state,frame);
+  refreshScalingCanvas()
   lastFrameNumberDrawn=frame;
  }
  animationFrameRequestHandle=requestAnimationFrame(onAnimationFrame);
@@ -584,6 +593,7 @@ function onGameFrameTimeout() {
  if(inp.length>inputLengthLimit) {
   inp=inp.slice(0,inputLengthLimit);
  }
+ var messageList=[]
  if(expectedFrameNumber==frame) {
   for(var i in outgoingCommandQueue) {
    var message={'k':'o',
@@ -591,21 +601,30 @@ function onGameFrameTimeout() {
 		'a':outgoingCommandQueue[i].a,
 		'f':expectedFrameNumber,
 		's':i+1};
-   try { socket.send(JSON.stringify(message)); } catch(e) {}
-   message.c=ownControllerID;
-   message.unacked=true;
-   onClientMessage(message);
+   messageList.push(message);
   }
   outgoingCommandQueue=[]
 
   var message={'k':'f',
 	       'f':expectedFrameNumber,
 	       'i':inp};
-  try { socket.send(JSON.stringify(message)); } catch(e) {}
-  message.c=ownControllerID;
+  messageList.push(message);
   frameSentTimestamps[expectedFrameNumber]=performance.now();
-  message.unacked=true;
-  onClientMessage(message);
+
+  // TODO: a game may need to break the message list
+  // into several smaller arrays to avoid hitting the length cap;
+  // bear in mind that in a worst-case scenario many many
+  // frames worth of commands might get stacked into one list.
+  // Right now that worst-case scenario amounts to a kind of alternate
+  // ping-out, since the long message is a result of missing frames and
+  // the server will hang up on it
+  try { socket.send(JSON.stringify(messageList)); } catch(e) {}
+  for(var i in messageList) {
+   messageList[i].c=ownControllerID;
+   messageList[i].unacked=true;
+   onClientMessage(messageList[i]);
+  }
+
   var state=getEstimatedGameState(expectedFrameNumber);
   playset.handleClientPrediction(state,expectedFrameNumber);
   ++expectedFrameNumber;
@@ -812,6 +831,45 @@ function onInitialLoad() {
    showPreloginFail();
   }
  } 
+}
+
+function createScalingCanvas(smallCanvas) {
+ if(largeScalingCanvas && largeScalingCanvas.parentElement) {
+  largeScalingCanvas.parentElement.removeChild(largeScalingCanvas);
+ }
+ smallScalingCanvas=smallCanvas;
+ largeScalingCanvas=document.createElement("canvas");
+ largeScalingContext=largeScalingCanvas.getContext("2d");
+ largeScalingCanvas.style.position="absolute";
+ largeScalingCanvas.style.left="50%";
+ largeScalingCanvas.style.top="50%";
+ screenDiv.appendChild(largeScalingCanvas);
+ refreshScalingCanvas(true);
+ return largeScalingCanvas;
+}
+
+function refreshScalingCanvas(forceSize) {
+ if(largeScalingCanvas && largeScalingCanvas.parentElement) {
+  var bcr=screenDiv.getBoundingClientRect();
+  var widths=Math.max(1,Math.floor(bcr.width/smallScalingCanvas.width));
+  var heights=Math.max(1,Math.floor(bcr.height/smallScalingCanvas.height));
+  var scale=Math.min(widths,heights);
+  if(forceSize || largeScalingCanvas.width!=scale*smallScalingCanvas.width ||
+     largeScalingCanvas.height!=scale*smallScalingCanvas.height) {
+   largeScalingCanvas.width=smallScalingCanvas.width*scale;
+   largeScalingCanvas.height=smallScalingCanvas.height*scale;   
+   largeScalingCanvas.style["margin-left"]=-(largeScalingCanvas.width/2)+"px"
+   largeScalingCanvas.style["margin-top"]=-(largeScalingCanvas.height/2)+"px"
+   largeScalingContext.imageSmoothingEnabled=false;
+  }
+  largeScalingContext.drawImage(smallScalingCanvas,
+				0,0,
+				smallScalingCanvas.width,
+				smallScalingCanvas.height,
+				0,0,
+				largeScalingCanvas.width,
+				largeScalingCanvas.height);
+ }
 }
 
 window.addEventListener("load",onInitialLoad);

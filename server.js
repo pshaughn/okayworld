@@ -30,6 +30,8 @@
        user-management UI and playset ui 'avatar' assignment; is also 
        available to playset game state logic, but be wary of "modeling for
        advantage" customization)
+   .t: pong timestamp, only when echoing .k=="f" from client to server
+ 
 
    Canonical sort order of events:
    .k primary, "c"<"o"<"f"<"d"
@@ -66,11 +68,12 @@
    x:{controllerID:{'u':username,'i':inputString}... },
    e:[instancecontrollerevents... unsorted],
    c:controllerID, f:frameNumberOfSerializedState, r:fps} (login)
-   {k:"F"} (frame horizon has advanced)
-   {k:"F", h: hash} (frame horizon has advanced, and client should sync-test)
+   {k:"F", f: frameNumber} (frame horizon has advanced)
+   {k:"F", f: frameNumber, h: hash} (above, and client should sync-test)
 
    client-to-server network messages for normal login:
    "o" or "f" instance-controller events
+   array of "o" or "f" instance-controller events
    {k:"l", u:username, p:password, n:instanceName}   
 
    client-to-server network messages for self-serve API calls:
@@ -86,22 +89,19 @@
    (later, admin versions of the self-serve operations)
    
    open issues not addressed here:
-   - password hashing
-   - saving out the state
-   - automatic async state saving
+   - state saving as anything other than a shutdown
+   - local port for admin operations
    - rotating state saves to avoid data loss, loading the right one
    - revelation of hidden state/rng rolls
    - handling of partially hidden state
    - handling of hidden inputs
    - propagating data between different instances, and keeping that synced up
-   - prevent simultaneous logins
-   - delay login when previous quit hasn't processed yet
    - gating instances (e.g. whitelists, bans, need another instance's approval)
    - non-real-time instances for games without client-side prediction
-   - user profile configuration
    - non-instance-specific messaging
    - admin operations for user management, including grant/revoke admin
    - fixed codes for error/success reasons
+   - (client-side) breaking long message arrays down to stay under max length
    
 */
 
@@ -130,6 +130,7 @@ const FPS=30;
 const PAST_HORIZON_FRAMES=FPS/2, FUTURE_HORIZON_FRAMES=FPS*3/2;
 const TIMEOUT_MILLIS=5000;
 const DEFAULT_HASH_SYNC_INTERVAL=FPS*5;
+const DEFAULT_FRAME_BROADCAST_INTERVAL=FPS/4;
 
 const MIN_USERNAME_LENGTH=3;
 const MAX_USERNAME_LENGTH=16;
@@ -425,6 +426,26 @@ function onSocketMessage(e) {
   controllerError(controller,"server could not parse network message");
   return;
  }
+ if(typeof(message)!="object") {
+  controllerError(controller,"non-JSON network message");
+  return;
+ }
+ if(Array.isArray(message)) {
+  for(var i=0;i<message.length && !controller.disconnected;++i)
+  {
+   if(typeof(message[i])!="object") {
+    controllerError(controller,"non-JSON network message");
+    return;
+   }
+   onInboundMessage(controller,message[i]);
+  }
+ }
+ else {
+  onInboundMessage(controller,message)
+ }
+}
+
+function onInboundMessage(controller,message) {
  switch(message.k) {
   // normal flow
  case "f": onFrameMessage(controller,message); break;
@@ -643,7 +664,14 @@ function onFrameMessage(controller,message) {
    "k":"f",
    "i":inp
   };
-  broadcastEventToInstance(controller.instance,event,true);
+  if(inp!=controller.lastFrameInput) {
+   controller.lastFrameInput=inp;
+   broadcastEventToInstance(controller.instance,event,true);
+  }
+  else {
+   // always put it in the instance, and always ping back
+   storeAndEchoInstanceEvent(controller.instance,event,true);
+  }
   resetConnectionTimeout(controller);
  }
  // else we either errored out, or we are refusing to acknowledge an out-of-date event
@@ -940,6 +968,28 @@ function broadcastEventToInstance(instance,event,addTimestamp) {
  }
 }
 
+function storeAndEchoInstanceEvent(instance,event,addTimestamp) {
+ addInstanceEvent(instance,event);
+ var msg=JSON.stringify(event);
+ if(event.c in instance.broadcastControllers) {
+  var controller=instance.broadcastControllers[event.c];
+  try {
+   if(addTimestamp) {
+    var injected={}
+    for(var k in event) { injected[k]=event[k]; }
+    injected.t=getTimingPongForInstance(instance);
+    controller.socket.send(JSON.stringify(injected));
+   }
+   else {
+    controller.socket.send(JSON.stringify(event));
+   }
+  }
+  catch(e) {
+   controllerError(controller,"server could not send event");
+  }
+ }
+}
+
 function sendInstanceSnapshot(controller) {
  var instance=controller.instance;
  var eventsPile=[]
@@ -1099,6 +1149,16 @@ function advanceHorizonState(instance) {
   delete instance.pastHorizonControllerStatus[disconnects[i]];
  }
  ++instance.pastHorizonFrameNumber;
+
+ var broadcastFrame=false
+ if("frameBroadcastInterval" in config) {
+  broadcastFrame=((instance.pastHorizonFrameNumber%
+	      config.frameBroadcastInterval)==0);
+ }
+ else {
+  broadcastFrame=((instance.pastHorizonFrameNumber%
+	      DEFAULT_FRAME_BROADCAST_INTERVAL)==0);
+ }
  
  var hashFrame=false
  if(instance.playset.hashGameState) {
@@ -1123,19 +1183,29 @@ function advanceHorizonState(instance) {
    }  
   }
   var msg=JSON.stringify({"k":"F",
-			  "h":hash});
+			  "h":hash,
+			  "f":instance.pastHorizonFrameNumber});
+ }
+ else if(broadcastFrame) {
+  var msg=JSON.stringify({"k":"F",
+			  "f":instance.pastHorizonFrameNumber});  
  }
  else {
-  var msg=JSON.stringify({"k":"F"});
+  // base case: we don't immediately tell clients about this frame advance;
+  // they'll find out next broadcastFrame or hashFrame.
+  var msg=null;
  }
+ 
 
+ if(msg) {
   for(var i in instance.broadcastControllers) {
-  var controller=instance.broadcastControllers[i];
-  try {
-   controller.socket.send(msg);
-  }
-  catch(e) {
-   controllerError(controller,"server could not send event");
+   var controller=instance.broadcastControllers[i];
+   try {
+    controller.socket.send(msg);
+   }
+   catch(e) {
+    controllerError(controller,"server could not send event");
+   }
   }
  }
 
