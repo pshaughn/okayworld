@@ -48,6 +48,8 @@ var username, password, instanceName;
 /* variables corresponding to controller */
 var ownControllerID;
 var expectedFrameNumber; // theoretically == server's minFrameNumber
+var globalChatTokens;
+var maxChatMessageLength;
 
 /* commands wait here so they can be sent on a meaningful frame number */
 var outgoingCommandQueue;
@@ -201,15 +203,21 @@ function onSocketMessage(e) {
  case "d": // this must be a different controller's
   onClientMessage(message);
   break;
+ case "g":
+  onGlobalChatMessage(message);
+  break;
+ case "G":
+  onGlobalChatTokenMessage(message);
+  break;
+  // don't worry about default, assumption is a non-farting server
  }
- // don't worry about default, assumption is a non-farting server
 }
 
 function handleConnectionEnd() {
  if(playset) {
   playset.destroyUI();
+  screenDiv.innerHTML="";
  }
- screenDiv.innerHTML="";
  if(animationFrameRequestHandle) {
   cancelAnimationFrame(animationFrameRequestHandle);
   animationFrameRequestHandle=null;
@@ -269,6 +277,8 @@ function onInitialStateMessage(message) {
  controllerStatuses={}
  controllerStatuses[pastHorizonFrameNumber]=message.x;
  ownControllerID=message.c;
+ globalChatTokens=message.m;
+ maxChatMessageLength=message.l;
  instanceEvents={};
  outgoingCommandQueue=[];
  commandRateCounters={};
@@ -297,10 +307,9 @@ function onInitialStateMessage(message) {
  }
  // state is set up 
  document.getElementById("waitUI").style.display="none";
- screenDiv=document.getElementById("gameUI");
+ document.getElementById("gameUI").style.display="block";
+ screenDiv=document.getElementById("mainGameUI");
  screenDiv.innerHTML="";
- screenDiv.style.display="block";
- screenDiv.style.position="relative";
  if(!keysHeldTracker) {
   window.addEventListener('keydown',onKeydown)
   window.addEventListener('keyup',onKeyup)
@@ -309,6 +318,9 @@ function onInitialStateMessage(message) {
  keysHeldTracker={}
  keysFreshTracker={}
 
+ initChat();
+ if(globalChatTokens) { enableChatInput(); }
+ 
  var frame=estimatePresentTimeFrameNumber();
  var state=getEstimatedGameState(frame);
  playset.initUI(state);
@@ -319,15 +331,25 @@ function onInitialStateMessage(message) {
  lastFrameNumberDrawn=frame;
  gameFrameTimeout=setTimeout(onGameFrameTimeout,0);
  animationFrameRequestHandle=requestAnimationFrame(onAnimationFrame);
+
+
 }
 
 function onKeydown(e) {
- if(!keysHeldTracker[e.code]) {
-  keysHeldTracker[e.code]=true;
-  keysFreshTracker[e.code]=true; 
+ if(document.activeElement.tagName=="INPUT") {
+  if(document.activeElement.id=="chatInput" &&
+     e.code=="Enter" || e.code=="NumpadEnter") {
+   onChatSendClick();
+  }
  }
- if(!e.shiftKey && !e.ctrlKey) {
-  e.preventDefault();
+ else {
+  if(!keysHeldTracker[e.code]) {
+   keysHeldTracker[e.code]=true;
+   keysFreshTracker[e.code]=true; 
+  }
+  if(!e.shiftKey && !e.ctrlKey) {
+   e.preventDefault();
+  }
  }
 }
 
@@ -653,6 +675,84 @@ function acceptAck(message) {
  }
 }
 
+function initChat() {
+ var box=document.getElementById("chatScrollBox");
+ box.textContent=""
+ document.getElementById("chatInput").value="";
+ document.getElementById("chatSendButton").disabled=true;
+ document.getElementById("chatSendButton").onclick=onChatSendClick;
+ document.getElementById("chatInput").oninput=onChatInputEvent;
+}
+
+function onChatSendClick() {
+ var b=document.getElementById("chatSendButton");
+ if(!b.disabled) {
+  var text=document.getElementById("chatInput").value.trim();
+  document.getElementById("chatInput").value="";
+  if(text && text.length<=maxChatMessageLength) {
+   sendChatMessage(text);
+  }
+ }
+}
+
+function onChatInputEvent() {
+ if(this.value.length>maxChatMessageLength) {
+  document.getElementById("chatSendButton").disabled=true
+ }
+ else if(globalChatTokens>0) {
+  document.getElementById("chatSendButton").disabled=false
+ }
+}
+
+function sendChatMessage(text) {
+ // for now the only channel is global
+ try {
+  socket.send( JSON.stringify({k:"g",m:text}))
+  --globalChatTokens;
+  console.log(globalChatTokens);
+  if(globalChatTokens<=0) {
+   disableChatInput();
+  }
+ }
+ catch(e) {}
+}
+
+function onGlobalChatMessage(m) {
+ var box=document.getElementById("chatScrollBox");
+ var nearBottom=(box.scrollTop+box.clientHeight>=box.scrollHeight-16);
+ var d=document.createElement("div");
+ d.className="chatLine";
+ // TODO: username coloring?
+ var head=document.createElement("span");
+ head.textContent=m.u;
+ head.className="chatUsername";
+ var body=document.createElement("span");
+ body.textContent=m.m;
+ body.className="chatText";
+ d.appendChild(head);
+ d.appendChild(body);
+ box.appendChild(d)
+ 
+ // if scrolled to bottom before new line, stay scrolled to bottom
+ if(nearBottom) {
+  box.scrollTop=box.scrollHeight;
+ }
+}
+
+function onGlobalChatTokenMessage() {
+ ++globalChatTokens;
+ if(globalChatTokens==1) {
+  enableChatInput();
+ }
+}
+
+function enableChatInput() {
+ document.getElementById("chatSendButton").disabled=false;
+}
+
+function disableChatInput() {
+ document.getElementById("chatSendButton").disabled=true;
+}
 
 function defaultGameStateHash(o) {
  function combine(a,b) {

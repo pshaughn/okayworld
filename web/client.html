@@ -6,6 +6,14 @@
     <script src="profile.js"></script>
     <script src="client.js"></script>
     <script src="playsets.js"></script>
+    <style>
+      .chatUsername {
+      font-weight:bold;
+      }
+      .chatUsername::after {
+      content:": ";
+      }
+    </style>
   </head>
   <body style="margin:0; padding:0;">
     <div id="preloginUI" style="width:100vw; height:100vh; display:block;">
@@ -23,7 +31,16 @@
     <div id="waitUI" style="width:100vw; height:100vh; display:none;">
       Connecting, please wait...
     </div>    
-    <div id="gameUI" style="width:100vw; height:100vh; display:none;">
+    <div id="gameUI" style="width:100vw; height:100vh; display:none; position:relative;">
+      <div id="mainGameUI" style="width:75vw; height:100vh; position:absolute;">
+      </div>
+      <div id="chatUI" style="left:75vw; width:25vw; height:100vh; position:absolute;">
+	<div id="chatScrollBox" style="overflow-y:scroll; height:calc(100vh - 4em);"></div>
+	<div id="chatControls" style="display:flex; height:2em; margin:1em;">
+	  <input style="flex:1; min-width:0;" id="chatInput">
+	  <button style="flex:0;" id="chatSendButton">Send</button>
+	</div>
+      </div>      
     </div>						    
   </body>
 </html>

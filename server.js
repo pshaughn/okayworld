@@ -67,14 +67,20 @@
    {k:"S", g:serializedGameState,  p:playsetName,
    x:{controllerID:{'u':username,'i':inputString}... },
    e:[instancecontrollerevents... unsorted],
-   c:controllerID, f:frameNumberOfSerializedState, r:fps} (login)
+   c:controllerID, f:frameNumberOfSerializedState, 
+   m:initialChatTokenCount, l:chatMessageMaxLength, r:fps} (login)
    {k:"F", f: frameNumber} (frame horizon has advanced)
    {k:"F", f: frameNumber, h: hash} (above, and client should sync-test)
+   {k:"g",c:controllerID,u:username,m:message} (global chat)
+   {k:"G", n:messageCount} (granting client permission to send n 
+                            global chat messages; this adds to previous
+			    unspent permissions if any)
 
    client-to-server network messages for normal login:
    "o" or "f" instance-controller events
    array of "o" or "f" instance-controller events
    {k:"l", u:username, p:password, n:instanceName}   
+   {k:"g",m:message}
 
    client-to-server network messages for self-serve API calls:
    {k:"prelogin"} no credentials needed, return info for login page
@@ -131,6 +137,9 @@ const PAST_HORIZON_FRAMES=FPS/2, FUTURE_HORIZON_FRAMES=FPS*3/2;
 const TIMEOUT_MILLIS=5000;
 const DEFAULT_HASH_SYNC_INTERVAL=FPS*5;
 const DEFAULT_FRAME_BROADCAST_INTERVAL=FPS/4;
+const DEFAULT_MAX_CHAT_MESSAGE_LENGTH=1024;
+const DEFAULT_CHAT_BURST_SIZE=5;
+const DEFAULT_CHAT_WAIT_MILLIS=2000;
 
 const MIN_USERNAME_LENGTH=3;
 const MAX_USERNAME_LENGTH=16;
@@ -451,6 +460,7 @@ function onInboundMessage(controller,message) {
  case "f": onFrameMessage(controller,message); break;
  case "o": onCommandMessage(controller,message); break;
  case "l": onLoginMessage(controller,message); break;
+ case "g": onGlobalChatMessage(controller,message); break;
   // API calls
  case "prelogin": onPreloginMessage(controller,message); break;
  case "selfServeCreateUser": onCreateUserMessage(controller,message); break;
@@ -584,12 +594,16 @@ function makeControllerLive(controller) {
   "u":controller.username,
   "f":instanceFrameNow,
   "d":users[controller.username].config,
-  "k":"c"
+  "k":"c",
  };
  broadcastEventToInstance(controller.instance,connectEvent,false);
  subscribeControllerToBroadcasts(controller);
+ controller.globalChatTokens=config.globalChatBurstSize||
+  DEFAULT_CHAT_BURST_SIZE;
  sendInstanceSnapshot(controller);
  resetConnectionTimeout(controller);
+
+
 }
 
 
@@ -764,6 +778,44 @@ function validateFrameOrCommandMessage(controller,message) {
   return false;
  }
  return true;
+}
+
+function onGlobalChatMessage(controller,message) {
+ if(controller.lifecycle!="live" || !controller.globalChatTokens) {
+  controllerError(controller,"client sent global chat too quickly");
+  return
+ }
+ var m=message.m+""
+ var maxChatMessageLength=config.maxChatMessageLength||
+     DEFAULT_MAX_CHAT_MESSAGE_LENGTH;
+ if(m.length>maxChatMessageLength) {
+  controllerError(controller,
+		  "client sent a global chat message that was too long");
+  return;
+ }
+ --controller.globalChatTokens;
+ broadcastMessageGlobally({
+  "k":"g",
+  "c":controller.id,
+  "u":controller.username,
+  "m":m
+ })
+ grantGlobalChatTokenSoon(controller);
+}
+
+function grantGlobalChatTokenSoon(controller) {
+ setTimeout(
+  function() {
+   if(controller.lifecycle=="live") {
+    ++controller.globalChatTokens;
+    try {
+     controller.socket.send(JSON.stringify({"k":"G"}));
+    }
+    catch(e) {}
+   }
+  },
+  config.globalChatWaitMillis||DEFAULT_CHAT_WAIT_MILLIS
+ );
 }
 
 function validateUsername(username,controller) {
@@ -946,6 +998,19 @@ function addInstanceEvent(instance,event) {
  }
 }
 
+function broadcastMessageGlobally(message) {
+ message=JSON.stringify(message);
+ for(var k in controllers) {
+  if(controllers[k].lifecycle=="live") {
+   try {
+    controllers[k].socket.send(message);
+   }
+   catch(e) {
+   }   
+  }
+ }
+}
+
 function broadcastEventToInstance(instance,event,addTimestamp) {
  addInstanceEvent(instance,event);
  var msg=JSON.stringify(event);
@@ -1008,6 +1073,9 @@ function sendInstanceSnapshot(controller) {
   f:instance.pastHorizonFrameNumber,
   e:eventsPile,
   r:FPS,
+  l:config.maxChatMessageLength||
+   DEFAULT_MAX_CHAT_MESSAGE_LENGTH,
+  m:controller.globalChatTokens,
  }
  controller.socket.send(JSON.stringify(snapshot)); 
 }
@@ -1145,7 +1213,9 @@ function advanceHorizonState(instance) {
    delete inboxControllers[username];
    makeControllerLive(ctr);
   }
+  var oldController= outboxControllers[username];
   delete outboxControllers[username];
+  delete controllers[oldController.id];
   delete instance.pastHorizonControllerStatus[disconnects[i]];
  }
  ++instance.pastHorizonFrameNumber;
