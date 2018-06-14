@@ -611,13 +611,10 @@ function onGameFrameTimeout() {
   messageList.push(message);
   frameSentTimestamps[expectedFrameNumber]=performance.now();
 
-  // TODO: a game may need to break the message list
-  // into several smaller arrays to avoid hitting the length cap;
-  // bear in mind that in a worst-case scenario many many
-  // frames worth of commands might get stacked into one list.
-  // Right now that worst-case scenario amounts to a kind of alternate
-  // ping-out, since the long message is a result of missing frames and
-  // the server will hang up on it
+  // worst case scenario is hitting the rate cap on every allowed command,
+  // with long arguments, and sending a long input string. if that
+  // ever threatens to get close to 20000 bytes when stringified to JSON,
+  // something will need to be done about it.
   try { socket.send(JSON.stringify(messageList)); } catch(e) {}
   for(var i in messageList) {
    messageList[i].c=ownControllerID;
