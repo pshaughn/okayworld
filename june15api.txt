@@ -1,0 +1,48 @@
+New plans!
+
+The server's state in RAM has:
+- users, indexed by username. A user has a username, a hashed password, a bundle of JSON-serializable persistent values, possibly an open session, and possibly a flushing session
+-- a session itself has a socket, a remote address, an instance (once logged in), and data needed for rate limiting, chronological ordering, and inactivity timeouts.
+- canonical-cased usernames, indexed by lowercase username.
+- global timing information: what is the time for fictional frame number zero, what is the frame number of the current past horizon?
+- instances, indexed by name. An instance has a playset, a game state (as of past horizon) and a list of pending events.
+- set of new sessions awaiting login (these don't need unique IDs yet and will be put inside a user object if they're validated)
+- set of users who have an open or flushing session
+- config variables, a JSON bag used by various server code (and made available to server-side-only playset operations)
+- self-serve account creation limit information
+
+a game state has:
+- the world state, an arbitrary object (json-serializable or convertable to such by playset)
+- the user list. each user has:
+--a username,
+--a bundle of just those JSON-serializable persistent values that are relevant to the playset
+--the JSON-serializable input object currently believed to be correct for the upcoming frame
+--possibly (only when set by the playset) an instance name to move the user to, and additionally possibly an entrance string to pass to the new instance when doing so. setting this is not guaranteed to actually disconnect the user from the instance.
+
+on the server, mutations to this user list's members get written back to the underlying user data (and indeed the members may be included by reference)
+
+playset code can be broken into multiple files. at least initially this is just one served-to-client and one purely server-side. keep the registerPlayset global workaround in place.
+SERVED TO CLIENT, ALSO USED BY SERVER, NEED TO BE DETERMINISTIC BETWEEN THEM:
+- a name
+- process an elapsed frame of game state, acting in-place
+- optionally, process a disconnect event on a game state. this handler sees the user still in the user list and is not responsible for the actual removal (if not used, elapsed frame handler needs to deal with the disappearance of the user)
+- optionally, process a connect event on a game state. this handler sees the user already added the user list (if not used, elapsed frame handler needs to deal with the appearance of the user)
+- optionally, convert a full world state to a json-serializable object and back, and copy a full world state (default assumes it's already serializable) [technically client doesn't use the serialize if the copy is defined separately]
+- optionally, given a JSON-serializable input object, return the input object to predict for the following frame (default is a simple copy; this is to avoid duplicating clicks and button edges)
+
+SERVED TO CLIENT, NOT USED BY SERVER (but might as well be in the same file as the shared ones; these don't need determinism):
+- initializer for client UI
+- draw function for client UI (may be called repeatedly for the same frame number, or even backwards in time)
+- translate current/recent client input state into a JSON-serializable input object
+- optionally, destructor for client UI (move destructor behavior into client core as much as possible)
+- optionally, prediction-advance handler for client UI (called exactly once per frame number)
+- optionally, horizon-advance handler for client UI (called exactly once per frame number, on a delay)
+
+ONLY USED SERVERSIDE (but may be provided in client file if that's more convenient; functions in these don't need determinism):
+- a collection of user data keys that are relevant to the playset (this does need determinism)
+- construct a world state from scratch
+- optionally, convert a persistable part of a world state to a json-serializable object, and convert back from that (this does not have to be a perfect or deterministic round-trip, and specifically should not reconstruct the presence of any player characters)
+- optionally, validate an entrance attempt from another instance, given username, relevant user data, instance the user is coming from, and entrance string
+- optionally, validate a JSON-serializable input object (default lets through anything and is restricted only by the server's overall message size cap)
+
+some points still to be figured out: where and how do you do avatar configuration? does password changing get integrated into the main login-sesion flow? how should chat UI be laid out?
